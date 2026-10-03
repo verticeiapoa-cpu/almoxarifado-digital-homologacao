@@ -1,0 +1,6 @@
+{
+  "name": "Almoxarifado Digital",
+  "description": "Aplicativo para registro de entregas de materiais sem papel, com captura de assinatura digital e geração de PDF.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["FIREBASE_AUTH", "FIRESTORE", "PDF_GENERATION", "TOUCH_SIGNATURE"]
+}

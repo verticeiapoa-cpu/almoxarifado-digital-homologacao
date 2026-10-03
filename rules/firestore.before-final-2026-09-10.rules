@@ -1,0 +1,111 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation Helpers
+    function isValidDelivery(data) {
+      return data.keys().hasAll(['timestamp', 'responsibleUser', 'employeeId', 'employeeName', 'employeeCpf', 'employeeJobTitle', 'employeeObraName', 'employeeIsOutsourced', 'items', 'status', 'createdAt', 'updatedAt', 'createdBy'])
+        && data.timestamp is string && data.timestamp.size() <= 50
+        && data.responsibleUser is string && data.responsibleUser.size() <= 100
+        && data.employeeId is string && data.employeeId.size() <= 128
+        && data.items is list
+        && data.items.size() > 0
+        && data.status is string && data.status.size() <= 20
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.updatedAt is string && data.updatedAt.size() <= 50
+        && data.createdBy is string && data.createdBy == request.auth.uid;
+    }
+
+    // Users & Multi-tenant Profile Collection
+    match /users/{userId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Employees Collection
+    match /employees/{employeeId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Departments Collection
+    match /departments/{departmentId} {
+      allow read: if isSignedIn();
+    }
+
+    // Materials Collection
+    match /materials/{materialId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Obras Collection
+    match /obras/{obraId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Deliveries Collection
+    match /deliveries/{deliveryId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() 
+        && isValidId(deliveryId) 
+        && isValidDelivery(incoming());
+      // Absolute immutability: no update or delete allowed for deliveries to maintain audit log
+      allow update, delete: if false;
+    }
+
+    // Stock Balances Collection
+    match /stockBalances/{balanceId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn()
+        && incoming().quantity is number
+        && incoming().quantity >= 0
+        && incoming().availableQuantity is number
+        && incoming().availableQuantity >= 0;
+      allow delete: if isSignedIn();
+    }
+
+    // Stock Lots Collection
+    match /stockLots/{lotId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn()
+        && incoming().quantity is number
+        && incoming().quantity >= 0;
+      allow delete: if isSignedIn();
+    }
+
+    // Stock Movements Collection (Immutable audit log)
+    match /stockMovements/{movementId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && incoming().keys().hasAll(['companyId', 'obraId', 'materialId', 'movementType', 'quantity', 'previousBalance', 'newBalance', 'reason', 'status'])
+        && incoming().quantity is number
+        && incoming().quantity > 0
+        && incoming().newBalance is number
+        && incoming().newBalance >= 0;
+      // Absolute immutability: no updates or deletes permitted
+      allow update, delete: if false;
+    }
+  }
+}
+

@@ -1,0 +1,151 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Represents an authenticated user profile with multi-tenant company and obra access.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 120 },
+        "name": { "type": "string", "maxLength": 100 },
+        "companyId": { "type": "string", "maxLength": 100 },
+        "companyName": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["admin", "storekeeper"] },
+        "assignedObraIds": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "name", "companyId", "role", "assignedObraIds", "createdAt", "updatedAt"]
+    },
+    "UserInvitation": {
+      "title": "UserInvitation",
+      "description": "Convite de acesso vinculado ao e-mail autenticado pelo Google.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 120 },
+        "name": { "type": "string", "maxLength": 100 },
+        "companyId": { "type": "string", "maxLength": 100 },
+        "companyName": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["admin", "storekeeper"] },
+        "assignedObraIds": { "type": "array" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "revoked"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "acceptedByUid": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["email", "name", "companyId", "role", "assignedObraIds", "status", "createdAt", "updatedAt", "createdBy"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "Represents an employee in the company.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "cpf": { "type": "string", "maxLength": 20 },
+        "jobTitle": { "type": "string", "maxLength": 100 },
+        "obraId": { "type": "string", "maxLength": 128 },
+        "obraName": { "type": "string", "maxLength": 128 },
+        "companyId": { "type": "string", "maxLength": 100 },
+        "isOutsourced": { "type": "boolean" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "jobTitle", "isActive"]
+    },
+    "Obra": {
+      "title": "Obra",
+      "description": "Represents a construction site or project.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 120 },
+        "address": { "type": "string", "maxLength": 200 },
+        "companyId": { "type": "string", "maxLength": 100 },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["name", "isActive"]
+    },
+    "Department": {
+      "title": "Department",
+      "description": "Represents a department in the company.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["name", "isActive"]
+    },
+    "Material": {
+      "title": "Material",
+      "description": "Represents a material available in the inventory.",
+      "type": "object",
+      "properties": {
+        "ca": { "type": "string", "maxLength": 50 },
+        "description": { "type": "string", "maxLength": 200 },
+        "companyId": { "type": "string", "maxLength": 100 },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["description", "isActive"]
+    },
+    "Delivery": {
+      "title": "Delivery",
+      "description": "Represents a delivery of a material to an employee.",
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string", "format": "date-time" },
+        "responsibleUser": { "type": "string", "maxLength": 100 },
+        "companyId": { "type": "string", "maxLength": 100 },
+        "obraId": { "type": "string", "maxLength": 128 },
+        "employeeId": { "type": "string", "maxLength": 128 },
+        "employeeName": { "type": "string", "maxLength": 100 },
+        "employeeCpf": { "type": "string", "maxLength": 20 },
+        "employeeJobTitle": { "type": "string", "maxLength": 100 },
+        "employeeObraName": { "type": "string", "maxLength": 128 },
+        "employeeIsOutsourced": { "type": "boolean" },
+        "items": { "type": "array" },
+        "status": { "type": "string", "enum": ["PENDING_SYNC", "COMPLETED", "FAILED_SYNC"] },
+        "signatureUrl": { "type": "string" },
+        "signatureHash": { "type": "string", "maxLength": 64 },
+        "audit": { "type": "object" },
+        "serverCreatedAt": { "type": "timestamp" },
+        "pdfUrl": { "type": "string" },
+        "driveFileId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["timestamp", "responsibleUser", "employeeId", "employeeName", "items", "status", "createdAt", "updatedAt", "createdBy"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Stores user access profile, roles, and assigned obras."
+    },
+    "invitations/{email}": {
+      "schema": { "$ref": "#/entities/UserInvitation" },
+      "description": "Convites de acesso pendentes, aceitos ou revogados."
+    },
+    "obras/{obraId}": {
+      "schema": { "$ref": "#/entities/Obra" },
+      "description": "Stores construction sites."
+    },
+    "employees/{employeeId}": {
+      "schema": { "$ref": "#/entities/Employee" },
+      "description": "Stores all active and inactive employees."
+    },
+    "departments/{departmentId}": {
+      "schema": { "$ref": "#/entities/Department" },
+      "description": "Stores company departments."
+    },
+    "materials/{materialId}": {
+      "schema": { "$ref": "#/entities/Material" },
+      "description": "Stores available materials and SKUs."
+    },
+    "deliveries/{deliveryId}": {
+      "schema": { "$ref": "#/entities/Delivery" },
+      "description": "Stores material delivery records."
+    }
+  }
+}

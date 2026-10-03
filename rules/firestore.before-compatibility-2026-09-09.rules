@@ -1,0 +1,323 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function hasProfile() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function profile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isAdmin() {
+      return hasProfile() && profile().data.role == 'admin';
+    }
+
+    function isBootstrapAdminEmail(email) {
+      return email == 'verticeiapoa@gmail.com' || email == 'rmvmv1988@gmail.com';
+    }
+
+    function sameCompany(data) {
+      return hasProfile()
+        && data.companyId is string
+        && data.companyId == profile().data.companyId;
+    }
+
+    function canAccessObra(obraId) {
+      return hasProfile()
+        && obraId is string
+        && (isAdmin() || profile().data.assignedObraIds.hasAny([obraId]));
+    }
+
+    function canAccessEmployee(data) {
+      return canAccessObra(data.obraId)
+        || (('temporaryObraId' in data) && data.temporaryObraId is string && data.temporaryObraId.size() > 0 && canAccessObra(data.temporaryObraId));
+    }
+
+    function validProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'email', 'name', 'companyId', 'role', 'assignedObraIds',
+          'createdAt', 'updatedAt'
+        ])
+        && data.uid == userId
+        && data.email is string
+        && data.email == request.auth.token.email
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.companyId is string && data.companyId.size() > 0 && data.companyId.size() <= 100
+        && data.role in ['admin', 'storekeeper']
+        && data.assignedObraIds is list && data.assignedObraIds.size() <= 50
+        && data.createdAt is string && data.updatedAt is string;
+    }
+
+    function validItem(item) {
+      return item is map
+        && item.keys().hasOnly(['materialId', 'description', 'ca', 'quantity'])
+        && (!('materialId' in item) || (item.materialId is string && item.materialId.size() > 0 && item.materialId.size() <= 128))
+        && item.description is string
+        && item.description.size() > 0 && item.description.size() <= 200
+        && item.ca is string && item.ca.size() <= 50
+        && item.quantity is int && item.quantity > 0 && item.quantity <= 9999;
+    }
+
+    function validItemAt(items, index) {
+      return items.size() <= index || validItem(items[index]);
+    }
+
+    function validItems(items) {
+      return items is list && items.size() > 0 && items.size() <= 25
+        && validItemAt(items, 0) && validItemAt(items, 1)
+        && validItemAt(items, 2) && validItemAt(items, 3)
+        && validItemAt(items, 4) && validItemAt(items, 5)
+        && validItemAt(items, 6) && validItemAt(items, 7)
+        && validItemAt(items, 8) && validItemAt(items, 9)
+        && validItemAt(items, 10) && validItemAt(items, 11)
+        && validItemAt(items, 12) && validItemAt(items, 13)
+        && validItemAt(items, 14) && validItemAt(items, 15)
+        && validItemAt(items, 16) && validItemAt(items, 17)
+        && validItemAt(items, 18) && validItemAt(items, 19)
+        && validItemAt(items, 20) && validItemAt(items, 21)
+        && validItemAt(items, 22) && validItemAt(items, 23)
+        && validItemAt(items, 24);
+    }
+
+    function validObra(data, obraId) {
+      return data.keys().hasAll(['id', 'name', 'address', 'companyId', 'isActive'])
+        && data.keys().hasOnly(['id', 'name', 'address', 'companyId', 'isActive', 'createdAt', 'updatedAt'])
+        && data.id == obraId
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 120
+        && data.address is string && data.address.size() <= 200
+        && data.companyId is string && data.companyId.size() > 0 && data.companyId.size() <= 100
+        && data.isActive is bool;
+    }
+
+    function validEmployee(data, employeeId) {
+      return data.keys().hasAll(['id', 'name', 'cpf', 'jobTitle', 'obraId', 'obraName', 'companyId', 'isOutsourced', 'isActive'])
+        && data.keys().hasOnly(['id', 'name', 'cpf', 'jobTitle', 'obraId', 'obraName', 'temporaryObraId', 'temporaryObraName', 'companyId', 'isOutsourced', 'isActive', 'createdAt', 'updatedAt'])
+        && data.id == employeeId
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.cpf is string && data.cpf.size() > 0 && data.cpf.size() <= 20
+        && data.jobTitle is string && data.jobTitle.size() > 0 && data.jobTitle.size() <= 100
+        && data.obraId is string && data.obraId.size() > 0 && data.obraId.size() <= 128
+        && data.obraName is string && data.obraName.size() > 0 && data.obraName.size() <= 128
+        && (!('temporaryObraId' in data) || (data.temporaryObraId is string && data.temporaryObraId.size() <= 128))
+        && (!('temporaryObraName' in data) || (data.temporaryObraName is string && data.temporaryObraName.size() <= 128))
+        && data.companyId is string && data.companyId.size() > 0 && data.companyId.size() <= 100
+        && data.isOutsourced is bool && data.isActive is bool;
+    }
+
+    function validMaterial(data, materialId) {
+      return data.keys().hasAll(['id', 'description', 'ca', 'companyId', 'obraId', 'obraName', 'isActive', 'quantity', 'minimumStock', 'unit'])
+        && data.keys().hasOnly(['id', 'description', 'ca', 'companyId', 'obraId', 'obraName', 'isActive', 'quantity', 'minimumStock', 'unit', 'createdAt', 'updatedAt'])
+        && data.id == materialId
+        && data.description is string && data.description.size() > 0 && data.description.size() <= 200
+        && data.ca is string && data.ca.size() <= 50
+        && data.companyId is string && data.companyId.size() > 0 && data.companyId.size() <= 100
+        && data.obraId is string && data.obraId.size() > 0 && data.obraId.size() <= 128
+        && data.obraName is string && data.obraName.size() > 0 && data.obraName.size() <= 128
+        && data.quantity is int && data.quantity >= 0 && data.quantity <= 9999999
+        && data.minimumStock is int && data.minimumStock >= 0 && data.minimumStock <= 9999999
+        && data.unit is string && data.unit.size() > 0 && data.unit.size() <= 20
+        && data.isActive is bool;
+    }
+
+    function validDelivery(data) {
+      return data.keys().hasAll([
+          'timestamp', 'serverCreatedAt', 'responsibleUser', 'companyId', 'obraId',
+          'employeeId', 'employeeName', 'employeeCpf', 'employeeJobTitle',
+          'employeeObraName', 'employeeIsOutsourced', 'items', 'status',
+          'signatureUrl', 'signatureHash', 'audit', 'createdAt', 'updatedAt', 'createdBy'
+        ])
+        && data.keys().hasOnly([
+          'id', 'timestamp', 'serverCreatedAt', 'responsibleUser', 'companyId', 'obraId',
+          'employeeId', 'employeeName', 'employeeCpf', 'employeeJobTitle',
+          'employeeObraName', 'employeeIsOutsourced', 'items', 'status',
+          'signatureUrl', 'signatureHash', 'audit', 'createdAt', 'updatedAt', 'createdBy'
+        ])
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 128
+        && data.timestamp is string && data.timestamp.size() <= 50
+        && data.serverCreatedAt is timestamp && data.serverCreatedAt == request.time
+        && data.responsibleUser is string && data.responsibleUser.size() <= 100
+        && data.employeeId is string && data.employeeId.size() > 0 && data.employeeId.size() <= 128
+        && data.employeeName is string && data.employeeName.size() > 0 && data.employeeName.size() <= 100
+        && data.employeeCpf is string && data.employeeCpf.size() <= 20
+        && data.employeeJobTitle is string && data.employeeJobTitle.size() <= 100
+        && data.employeeObraName is string && data.employeeObraName.size() <= 128
+        && data.employeeIsOutsourced is bool
+        && validItems(data.items)
+        && data.status == 'COMPLETED'
+        && data.signatureUrl is string && data.signatureUrl.size() > 100 && data.signatureUrl.size() <= 900000
+        && data.signatureHash is string && data.signatureHash.matches('^[a-f0-9]{64}$')
+        && data.audit is map
+        && data.audit.keys().hasOnly(['authUid', 'authEmail', 'signedAt', 'signatureMethod', 'consentText', 'userAgent'])
+        && data.audit.authUid == request.auth.uid
+        && data.audit.authEmail == request.auth.token.email
+        && data.audit.signedAt == data.timestamp
+        && data.audit.signatureMethod == 'drawn-on-screen'
+        && data.audit.consentText is string && data.audit.consentText.size() > 20 && data.audit.consentText.size() <= 500
+        && (!('userAgent' in data.audit) || (data.audit.userAgent is string && data.audit.userAgent.size() <= 300))
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.updatedAt == data.createdAt
+        && data.createdBy == request.auth.uid
+        && sameCompany(data)
+        && canAccessObra(data.obraId);
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn() && (
+        userId == request.auth.uid ||
+        (isAdmin() && resource.data.companyId == profile().data.companyId)
+      );
+
+      allow create: if isSignedIn()
+        && userId == request.auth.uid
+        && validProfile(request.resource.data, userId)
+        && (
+          (
+            isBootstrapAdminEmail(request.auth.token.email)
+            && request.resource.data.companyId == 'wselent-default'
+            && request.resource.data.role == 'admin'
+            && request.resource.data.assignedObraIds == ['ALL']
+          ) || (
+            exists(/databases/$(database)/documents/invitations/$(request.auth.token.email))
+            && get(/databases/$(database)/documents/invitations/$(request.auth.token.email)).data.status == 'pending'
+            && request.resource.data.companyId == get(/databases/$(database)/documents/invitations/$(request.auth.token.email)).data.companyId
+            && request.resource.data.role == get(/databases/$(database)/documents/invitations/$(request.auth.token.email)).data.role
+            && request.resource.data.assignedObraIds == get(/databases/$(database)/documents/invitations/$(request.auth.token.email)).data.assignedObraIds
+          )
+        );
+
+      allow update: if (
+          isAdmin()
+          && resource.data.companyId == profile().data.companyId
+          && request.resource.data.companyId == resource.data.companyId
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.role in ['admin', 'storekeeper']
+          && (!isBootstrapAdminEmail(resource.data.email) || request.resource.data.role == 'admin')
+          && request.resource.data.assignedObraIds is list
+          && request.resource.data.assignedObraIds.size() <= 50
+        ) || (
+          isSignedIn()
+          && userId == request.auth.uid
+          && isBootstrapAdminEmail(request.auth.token.email)
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.email == request.auth.token.email
+          && request.resource.data.companyId == 'wselent-default'
+          && request.resource.data.role == 'admin'
+          && request.resource.data.assignedObraIds == ['ALL']
+          && request.resource.data.createdAt == resource.data.createdAt
+        );
+
+      allow delete: if false;
+    }
+
+    match /invitations/{email} {
+      allow get: if isSignedIn() && request.auth.token.email == email;
+      allow list: if isAdmin() && resource.data.companyId == profile().data.companyId;
+      allow create: if isAdmin()
+        && request.resource.data.email == email
+        && request.resource.data.companyId == profile().data.companyId
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.role in ['admin', 'storekeeper']
+        && request.resource.data.assignedObraIds is list
+        && request.resource.data.status in ['pending', 'revoked'];
+      allow update: if (
+          isAdmin()
+          && resource.data.companyId == profile().data.companyId
+          && request.resource.data.companyId == resource.data.companyId
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.status in ['pending', 'revoked']
+        ) || (
+          isSignedIn()
+          && request.auth.token.email == email
+          && resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedByUid', 'updatedAt'])
+          && request.resource.data.status == 'accepted'
+          && request.resource.data.acceptedByUid == request.auth.uid
+        );
+      allow delete: if isAdmin() && resource.data.companyId == profile().data.companyId;
+    }
+
+    match /obras/{obraId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(obraId);
+      allow create: if isAdmin()
+        && sameCompany(request.resource.data)
+        && validObra(request.resource.data, obraId);
+      allow update: if isAdmin()
+        && sameCompany(resource.data)
+        && request.resource.data.companyId == resource.data.companyId
+        && request.resource.data.id == resource.data.id
+        && validObra(request.resource.data, obraId);
+      allow delete: if false;
+    }
+
+    match /employees/{employeeId} {
+      allow read: if sameCompany(resource.data) && canAccessEmployee(resource.data);
+      allow create: if isAdmin()
+        && sameCompany(request.resource.data)
+        && validEmployee(request.resource.data, employeeId);
+      allow update: if isAdmin()
+        && sameCompany(resource.data)
+        && request.resource.data.companyId == resource.data.companyId
+        && request.resource.data.id == resource.data.id
+        && validEmployee(request.resource.data, employeeId);
+      allow delete: if false;
+    }
+
+    match /materials/{materialId} {
+      // Administrador pode consultar registros legados sem obra. Almoxarife sÃ³ enxerga estoque das obras liberadas.
+      allow read: if sameCompany(resource.data)
+        && (isAdmin() || (('obraId' in resource.data) && canAccessObra(resource.data.obraId)));
+      allow create: if isAdmin()
+        && sameCompany(request.resource.data)
+        && exists(/databases/$(database)/documents/obras/$(request.resource.data.obraId))
+        && get(/databases/$(database)/documents/obras/$(request.resource.data.obraId)).data.companyId == profile().data.companyId
+        && canAccessObra(request.resource.data.obraId)
+        && validMaterial(request.resource.data, materialId);
+      allow update: if (
+          isAdmin()
+          && sameCompany(resource.data)
+          && ('obraId' in resource.data)
+          && request.resource.data.companyId == resource.data.companyId
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.obraId == resource.data.obraId
+          && request.resource.data.obraName == resource.data.obraName
+          && validMaterial(request.resource.data, materialId)
+        ) || (
+          sameCompany(resource.data)
+          && ('obraId' in resource.data)
+          && canAccessObra(resource.data.obraId)
+          && request.resource.data.companyId == resource.data.companyId
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.obraId == resource.data.obraId
+          && request.resource.data.obraName == resource.data.obraName
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['quantity', 'updatedAt'])
+          && request.resource.data.quantity is int
+          && resource.data.quantity is int
+          && request.resource.data.quantity >= 0
+          && request.resource.data.quantity <= resource.data.quantity
+        );
+      allow delete: if false;
+    }
+
+    match /deliveries/{deliveryId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if isSignedIn()
+        && request.resource.data.id == deliveryId
+        && validDelivery(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

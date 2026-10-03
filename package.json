@@ -1,0 +1,39 @@
+{
+  "name": "almoxarifado-digital",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port=3000 --host=0.0.0.0",
+    "build": "node scripts/build.mjs",
+    "preview": "vite preview",
+    "clean": "node scripts/clean-dist.mjs",
+    "lint": "tsc --noEmit",
+    "test": "npm run test:rules",
+    "test:rules": "npx --yes firebase-tools@15.29.0 emulators:exec --project demo-almoxarifado --config firebase.test.json --only firestore \"vitest run tests/firestore.rules.test.ts\"",
+    "deploy:rules": "npx --yes firebase-tools@15.29.0 deploy --project gen-lang-client-0038131539 --only firestore:ai-studio-docbrief-694b79f8-8d07-4aec-ab6b-3d02339ff834"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "firebase": "^12.18.0",
+    "jspdf": "^4.2.1",
+    "lucide-react": "^0.546.0",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "react-router-dom": "^7.18.3",
+    "react-signature-canvas": "^1.1.0-alpha.2",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.37.1",
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/node": "^22.14.0",
+    "@types/react-signature-canvas": "^1.0.7",
+    "@vitejs/plugin-react": "^5.0.4",
+    "tailwindcss": "^4.1.14",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3",
+    "vitest": "^5.0.0"
+  }
+}

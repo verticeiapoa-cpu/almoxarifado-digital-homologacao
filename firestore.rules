@@ -1,0 +1,683 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function hasProfile() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function profile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isAdmin() {
+      return hasProfile() && profile().data.role == 'admin';
+    }
+
+    function isBootstrapAdminEmail(email) {
+      return email == 'verticeiapoa@gmail.com' || email == 'rmvmv1988@gmail.com';
+    }
+
+    function sameCompany(data) {
+      return hasProfile()
+        && data.companyId is string
+        && data.companyId == profile().data.companyId;
+    }
+
+    function canAccessObra(obraId) {
+      return hasProfile()
+        && obraId is string
+        && (isAdmin() || profile().data.assignedObraIds.hasAny([obraId]));
+    }
+
+    function validProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'email', 'name', 'companyId', 'role', 'assignedObraIds',
+          'createdAt', 'updatedAt'
+        ])
+        && data.uid == userId
+        && data.email is string
+        && data.email == request.auth.token.email
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.companyId is string && data.companyId.size() > 0 && data.companyId.size() <= 100
+        && data.role in ['admin', 'storekeeper']
+        && data.assignedObraIds is list && data.assignedObraIds.size() <= 50
+        && data.createdAt is string && data.updatedAt is string;
+    }
+
+    function validItem(item) {
+      return item is map
+        && item.keys().hasOnly(['description', 'ca', 'quantity', 'materialId', 'stockId'])
+        && item.description is string
+        && item.description.size() > 0 && item.description.size() <= 200
+        && item.ca is string && item.ca.size() <= 50
+        && item.quantity is int && item.quantity > 0 && item.quantity <= 9999
+        && (!('materialId' in item) || (item.materialId is string && item.materialId.size() <= 128))
+        && (!('stockId' in item) || (item.stockId is string && item.stockId.size() <= 260));
+    }
+
+    function validItemAt(items, index) {
+      return items.size() <= index || validItem(items[index]);
+    }
+
+    function validItems(items) {
+      return items is list && items.size() > 0 && items.size() <= 25
+        && validItemAt(items, 0) && validItemAt(items, 1)
+        && validItemAt(items, 2) && validItemAt(items, 3)
+        && validItemAt(items, 4) && validItemAt(items, 5)
+        && validItemAt(items, 6) && validItemAt(items, 7)
+        && validItemAt(items, 8) && validItemAt(items, 9)
+        && validItemAt(items, 10) && validItemAt(items, 11)
+        && validItemAt(items, 12) && validItemAt(items, 13)
+        && validItemAt(items, 14) && validItemAt(items, 15)
+        && validItemAt(items, 16) && validItemAt(items, 17)
+        && validItemAt(items, 18) && validItemAt(items, 19)
+        && validItemAt(items, 20) && validItemAt(items, 21)
+        && validItemAt(items, 22) && validItemAt(items, 23)
+        && validItemAt(items, 24);
+    }
+
+    function validObra(data, obraId) {
+      return data.keys().hasAll(['id', 'name', 'address', 'companyId', 'isActive'])
+        && data.keys().hasOnly(['id', 'name', 'address', 'cno', 'companyId', 'isActive', 'createdAt', 'updatedAt'])
+        && data.id == obraId
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 120
+        && data.address is string && data.address.size() <= 200
+        && data.companyId is string && data.companyId.size() > 0 && data.companyId.size() <= 100
+        && data.isActive is bool
+        && (!('cno' in data) || (data.cno is string && data.cno.size() <= 30));
+    }
+
+    function validEmployee(data, employeeId) {
+      return data.keys().hasAll(['id', 'name', 'cpf', 'jobTitle', 'obraId', 'obraName', 'companyId', 'isOutsourced', 'isActive'])
+        && data.keys().hasOnly(['id', 'name', 'cpf', 'jobTitle', 'obraId', 'obraName', 'obraCno', 'temporaryObraId', 'temporaryObraName', 'companyId', 'isOutsourced', 'isActive', 'createdAt', 'updatedAt'])
+        && data.id == employeeId
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.cpf is string && data.cpf.size() > 0 && data.cpf.size() <= 20
+        && data.jobTitle is string && data.jobTitle.size() > 0 && data.jobTitle.size() <= 100
+        && data.obraId is string && data.obraId.size() > 0 && data.obraId.size() <= 128
+        && data.obraName is string && data.obraName.size() > 0 && data.obraName.size() <= 128
+        && data.companyId is string && data.companyId.size() > 0 && data.companyId.size() <= 100
+        && data.isOutsourced is bool && data.isActive is bool
+        && (!('obraCno' in data) || (data.obraCno is string && data.obraCno.size() <= 30))
+        && (!('temporaryObraId' in data) || (data.temporaryObraId is string && data.temporaryObraId.size() <= 128))
+        && (!('temporaryObraName' in data) || (data.temporaryObraName is string && data.temporaryObraName.size() <= 128));
+    }
+
+    function validMaterial(data, materialId) {
+      return data.keys().hasAll(['id', 'description', 'ca', 'companyId', 'isActive'])
+        && data.keys().hasOnly(['id', 'description', 'ca', 'companyId', 'isActive', 'stockQuantity', 'minimumStock', 'unit', 'lowStockAlertSent', 'lastLowStockAlertAt', 'createdAt', 'updatedAt'])
+        && data.id == materialId
+        && data.description is string && data.description.size() > 0 && data.description.size() <= 200
+        && data.ca is string && data.ca.size() <= 50
+        && data.companyId is string && data.companyId.size() > 0 && data.companyId.size() <= 100
+        && data.isActive is bool
+        && (!('stockQuantity' in data) || (data.stockQuantity is int && data.stockQuantity >= 0 && data.stockQuantity <= 999999))
+        && (!('minimumStock' in data) || (data.minimumStock is int && data.minimumStock >= 0 && data.minimumStock <= 999999))
+        && (!('unit' in data) || (data.unit is string && data.unit.size() > 0 && data.unit.size() <= 12))
+        && (!('lowStockAlertSent' in data) || data.lowStockAlertSent is bool)
+        && (!('lastLowStockAlertAt' in data) || (data.lastLowStockAlertAt is string && data.lastLowStockAlertAt.size() <= 50));
+    }
+
+    function validLegacyMaterial(data, materialId) {
+      return data.keys().hasAll(['id', 'description', 'ca', 'companyId', 'obraId', 'obraName', 'isActive', 'quantity', 'minimumStock', 'unit'])
+        && data.keys().hasOnly(['id', 'description', 'ca', 'companyId', 'obraId', 'obraName', 'isActive', 'quantity', 'minimumStock', 'unit', 'createdAt', 'updatedAt'])
+        && data.id == materialId
+        && data.description is string && data.description.size() > 0 && data.description.size() <= 200
+        && data.ca is string && data.ca.size() <= 50
+        && data.companyId is string && data.companyId.size() > 0 && data.companyId.size() <= 100
+        && data.obraId is string && data.obraId.size() > 0 && data.obraId.size() <= 128
+        && data.obraName is string && data.obraName.size() > 0 && data.obraName.size() <= 128
+        && data.quantity is int && data.quantity >= 0 && data.quantity <= 9999999
+        && data.minimumStock is int && data.minimumStock >= 0 && data.minimumStock <= 9999999
+        && data.unit is string && data.unit.size() > 0 && data.unit.size() <= 20
+        && data.isActive is bool;
+    }
+
+    function validAlertSettings(data, companyId) {
+      return data.keys().hasAll(['id', 'companyId', 'recipientEmail', 'enabled', 'createdAt', 'updatedAt', 'updatedBy'])
+        && data.keys().hasOnly(['id', 'companyId', 'recipientEmail', 'enabled', 'createdAt', 'updatedAt', 'updatedBy'])
+        && data.id == companyId
+        && data.companyId == companyId
+        && data.recipientEmail is string && data.recipientEmail.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$')
+        && data.enabled is bool
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.updatedAt is string && data.updatedAt.size() <= 50
+        && data.updatedBy == request.auth.uid;
+    }
+
+    function validInventory(data, stockId) {
+      return data.keys().hasAll(['id', 'companyId', 'obraId', 'obraName', 'materialId', 'materialDescription', 'ca', 'quantity', 'minimumStock', 'unit', 'lowStockAlertSent', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'companyId', 'obraId', 'obraName', 'materialId', 'materialDescription', 'ca', 'quantity', 'minimumStock', 'unit', 'lowStockAlertSent', 'lastLowStockAlertAt', 'createdAt', 'updatedAt'])
+        && data.id == stockId
+        && stockId == data.obraId + '__' + data.materialId
+        && data.companyId is string && data.companyId.size() > 0
+        && data.obraId is string && data.obraId.size() > 0
+        && data.obraName is string && data.obraName.size() > 0 && data.obraName.size() <= 128
+        && data.materialId is string && data.materialId.size() > 0
+        && data.materialDescription is string && data.materialDescription.size() > 0 && data.materialDescription.size() <= 200
+        && data.ca is string && data.ca.size() <= 50
+        && data.quantity is int && data.quantity >= 0 && data.quantity <= 999999
+        && data.minimumStock is int && data.minimumStock >= 0 && data.minimumStock <= 999999
+        && data.unit is string && data.unit.size() > 0 && data.unit.size() <= 12
+        && data.lowStockAlertSent is bool
+        && (!('lastLowStockAlertAt' in data) || (data.lastLowStockAlertAt is string && data.lastLowStockAlertAt.size() <= 50));
+    }
+
+    function hasActiveTemporaryAccess(employeeId, serviceObraId, assignmentId) {
+      return assignmentId is string && assignmentId.size() > 0
+        && exists(/databases/$(database)/documents/temporaryAssignments/$(assignmentId))
+        && get(/databases/$(database)/documents/temporaryAssignments/$(assignmentId)).data.employeeId == employeeId
+        && get(/databases/$(database)/documents/temporaryAssignments/$(assignmentId)).data.hostObraId == serviceObraId
+        && get(/databases/$(database)/documents/temporaryAssignments/$(assignmentId)).data.companyId == profile().data.companyId
+        && get(/databases/$(database)/documents/temporaryAssignments/$(assignmentId)).data.status == 'ACTIVE'
+        && get(/databases/$(database)/documents/temporaryAssignments/$(assignmentId)).data.startsAt <= request.time
+        && get(/databases/$(database)/documents/temporaryAssignments/$(assignmentId)).data.endsAt >= request.time;
+    }
+
+    function validStockMovement(data, movementId) {
+      return data.keys().hasAll([
+          'id', 'companyId', 'obraId', 'obraName', 'materialId',
+          'materialDescription', 'type', 'quantity', 'balanceBefore',
+          'balanceAfter', 'createdAt', 'createdBy'
+        ])
+        && data.keys().hasOnly([
+          'id', 'companyId', 'obraId', 'obraName', 'materialId',
+          'materialDescription', 'type', 'quantity', 'balanceBefore',
+          'balanceAfter', 'deliveryId', 'notes', 'createdAt', 'createdBy'
+        ])
+        && data.id == movementId
+        && data.createdBy == request.auth.uid
+        && data.type in ['ENTRY', 'EPI_DELIVERY', 'TRANSFER', 'ADJUSTMENT', 'RETURN']
+        && data.obraId is string && data.obraId.size() > 0
+        && data.obraName is string && data.obraName.size() > 0 && data.obraName.size() <= 128
+        && data.materialId is string && data.materialId.size() > 0
+        && data.materialDescription is string && data.materialDescription.size() > 0 && data.materialDescription.size() <= 200
+        && data.quantity is int && data.quantity != 0
+        && data.balanceBefore is int && data.balanceBefore >= 0
+        && data.balanceAfter is int && data.balanceAfter >= 0
+        && data.balanceAfter == data.balanceBefore + data.quantity
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 300))
+        && getAfter(/databases/$(database)/documents/inventoryStock/$(data.obraId + '__' + data.materialId)).data.quantity == data.balanceAfter
+        && (
+          (isAdmin() && data.type != 'EPI_DELIVERY')
+          || (
+            data.type == 'EPI_DELIVERY'
+            && data.quantity < 0
+            && data.deliveryId is string && data.deliveryId.size() > 0
+            && getAfter(/databases/$(database)/documents/deliveries/$(data.deliveryId)).data.createdBy == request.auth.uid
+            && getAfter(/databases/$(database)/documents/deliveries/$(data.deliveryId)).data.stockObraId == data.obraId
+          )
+        );
+    }
+
+    function validDelivery(data) {
+      return data.keys().hasAll([
+          'timestamp', 'serverCreatedAt', 'responsibleUser', 'companyId', 'obraId',
+          'employeeHomeObraId', 'employeeHomeObraName', 'employeeHomeObraCno',
+          'serviceObraId', 'serviceObraName', 'stockObraId', 'stockObraName',
+          'isFloatingEmployee', 'temporaryAssignmentId', 'temporaryAssignmentReason',
+          'employeeId', 'employeeName', 'employeeCpf', 'employeeJobTitle',
+          'employeeObraName', 'employeeIsOutsourced', 'items', 'status',
+          'signatureUrl', 'signatureHash', 'audit', 'createdAt', 'updatedAt', 'createdBy'
+        ])
+        && data.keys().hasOnly([
+          'id', 'timestamp', 'serverCreatedAt', 'responsibleUser', 'companyId', 'obraId',
+          'employeeHomeObraId', 'employeeHomeObraName', 'employeeHomeObraCno',
+          'serviceObraId', 'serviceObraName', 'stockObraId', 'stockObraName',
+          'isFloatingEmployee', 'temporaryAssignmentId', 'temporaryAssignmentReason',
+          'employeeId', 'employeeName', 'employeeCpf', 'employeeJobTitle',
+          'employeeObraName', 'employeeIsOutsourced', 'items', 'status',
+          'signatureUrl', 'signatureHash', 'audit', 'createdAt', 'updatedAt', 'createdBy'
+        ])
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 128
+        && data.timestamp is string && data.timestamp.size() <= 50
+        && data.serverCreatedAt is timestamp && data.serverCreatedAt == request.time
+        && data.responsibleUser is string && data.responsibleUser.size() <= 100
+        && data.employeeId is string && data.employeeId.size() > 0 && data.employeeId.size() <= 128
+        && data.employeeName is string && data.employeeName.size() > 0 && data.employeeName.size() <= 100
+        && data.employeeCpf is string && data.employeeCpf.size() <= 20
+        && data.employeeJobTitle is string && data.employeeJobTitle.size() <= 100
+        && data.employeeObraName is string && data.employeeObraName.size() <= 128
+        && data.employeeIsOutsourced is bool
+        && data.employeeHomeObraId == data.obraId
+        && data.employeeHomeObraName is string && data.employeeHomeObraName.size() <= 128
+        && data.employeeHomeObraCno is string && data.employeeHomeObraCno.size() <= 30
+        && data.serviceObraId is string && data.serviceObraId.size() > 0
+        && data.serviceObraName is string && data.serviceObraName.size() > 0 && data.serviceObraName.size() <= 128
+        && data.stockObraId is string && data.stockObraId.size() > 0
+        && data.stockObraName is string && data.stockObraName.size() > 0 && data.stockObraName.size() <= 128
+        && data.isFloatingEmployee is bool
+        && data.temporaryAssignmentId is string && data.temporaryAssignmentId.size() <= 128
+        && data.temporaryAssignmentReason is string && data.temporaryAssignmentReason.size() <= 300
+        && validItems(data.items)
+        && data.status == 'COMPLETED'
+        && data.signatureUrl is string && data.signatureUrl.size() > 100 && data.signatureUrl.size() <= 900000
+        && data.signatureHash is string && data.signatureHash.matches('^[a-f0-9]{64}$')
+        && data.audit is map
+        && data.audit.keys().hasOnly(['authUid', 'authEmail', 'signedAt', 'signatureMethod', 'consentText', 'userAgent'])
+        && data.audit.authUid == request.auth.uid
+        && data.audit.authEmail == request.auth.token.email
+        && data.audit.signedAt == data.timestamp
+        && data.audit.signatureMethod == 'drawn-on-screen'
+        && data.audit.consentText is string && data.audit.consentText.size() > 20 && data.audit.consentText.size() <= 500
+        && (!('userAgent' in data.audit) || (data.audit.userAgent is string && data.audit.userAgent.size() <= 300))
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.updatedAt == data.createdAt
+        && data.createdBy == request.auth.uid
+        && sameCompany(data)
+        && get(/databases/$(database)/documents/employees/$(data.employeeId)).data.companyId == data.companyId
+        && get(/databases/$(database)/documents/employees/$(data.employeeId)).data.obraId == data.employeeHomeObraId
+        && get(/databases/$(database)/documents/employees/$(data.employeeId)).data.name == data.employeeName
+        && get(/databases/$(database)/documents/employees/$(data.employeeId)).data.cpf == data.employeeCpf
+        && get(/databases/$(database)/documents/employees/$(data.employeeId)).data.jobTitle == data.employeeJobTitle
+        && get(/databases/$(database)/documents/employees/$(data.employeeId)).data.obraName == data.employeeHomeObraName
+        && get(/databases/$(database)/documents/employees/$(data.employeeId)).data.obraName == data.employeeObraName
+        && get(/databases/$(database)/documents/employees/$(data.employeeId)).data.isOutsourced == data.employeeIsOutsourced
+        && (
+          (!('obraCno' in get(/databases/$(database)/documents/employees/$(data.employeeId)).data) && data.employeeHomeObraCno == '')
+          || get(/databases/$(database)/documents/employees/$(data.employeeId)).data.obraCno == data.employeeHomeObraCno
+        )
+        && get(/databases/$(database)/documents/obras/$(data.serviceObraId)).data.name == data.serviceObraName
+        && get(/databases/$(database)/documents/obras/$(data.stockObraId)).data.name == data.stockObraName
+        && canAccessObra(data.serviceObraId)
+        && canAccessObra(data.stockObraId)
+        && (
+          (!data.isFloatingEmployee && data.employeeHomeObraId == data.serviceObraId && data.temporaryAssignmentId == '')
+          || (
+            data.isFloatingEmployee
+            && data.employeeHomeObraId != data.serviceObraId
+            && hasActiveTemporaryAccess(data.employeeId, data.serviceObraId, data.temporaryAssignmentId)
+            && data.temporaryAssignmentReason == get(/databases/$(database)/documents/temporaryAssignments/$(data.temporaryAssignmentId)).data.reason
+          )
+        );
+    }
+
+    function validLegacyDelivery(data) {
+      return data.keys().hasAll([
+          'timestamp', 'serverCreatedAt', 'responsibleUser', 'companyId', 'obraId',
+          'employeeId', 'employeeName', 'employeeCpf', 'employeeJobTitle',
+          'employeeObraName', 'employeeIsOutsourced', 'items', 'status',
+          'signatureUrl', 'signatureHash', 'audit', 'createdAt', 'updatedAt', 'createdBy'
+        ])
+        && data.keys().hasOnly([
+          'id', 'timestamp', 'serverCreatedAt', 'responsibleUser', 'companyId', 'obraId',
+          'employeeId', 'employeeName', 'employeeCpf', 'employeeJobTitle',
+          'employeeObraName', 'employeeIsOutsourced', 'items', 'status',
+          'signatureUrl', 'signatureHash', 'audit', 'createdAt', 'updatedAt', 'createdBy'
+        ])
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 128
+        && data.timestamp is string && data.timestamp.size() <= 50
+        && data.serverCreatedAt is timestamp && data.serverCreatedAt == request.time
+        && data.responsibleUser is string && data.responsibleUser.size() <= 100
+        && data.employeeId is string && data.employeeId.size() > 0 && data.employeeId.size() <= 128
+        && data.employeeName is string && data.employeeName.size() > 0 && data.employeeName.size() <= 100
+        && data.employeeCpf is string && data.employeeCpf.size() <= 20
+        && data.employeeJobTitle is string && data.employeeJobTitle.size() <= 100
+        && data.employeeObraName is string && data.employeeObraName.size() <= 128
+        && data.employeeIsOutsourced is bool
+        && validItems(data.items)
+        && data.status == 'COMPLETED'
+        && data.signatureUrl is string && data.signatureUrl.size() > 100 && data.signatureUrl.size() <= 900000
+        && data.signatureHash is string && data.signatureHash.matches('^[a-f0-9]{64}$')
+        && data.audit is map
+        && data.audit.keys().hasOnly(['authUid', 'authEmail', 'signedAt', 'signatureMethod', 'consentText', 'userAgent'])
+        && data.audit.authUid == request.auth.uid
+        && data.audit.authEmail == request.auth.token.email
+        && data.audit.signedAt == data.timestamp
+        && data.audit.signatureMethod == 'drawn-on-screen'
+        && data.audit.consentText is string && data.audit.consentText.size() > 20 && data.audit.consentText.size() <= 500
+        && (!('userAgent' in data.audit) || (data.audit.userAgent is string && data.audit.userAgent.size() <= 300))
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.updatedAt == data.createdAt
+        && data.createdBy == request.auth.uid
+        && sameCompany(data)
+        && canAccessObra(data.obraId);
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn() && (
+        userId == request.auth.uid ||
+        (isAdmin() && resource.data.companyId == profile().data.companyId)
+      );
+
+      allow create: if isSignedIn()
+        && userId == request.auth.uid
+        && validProfile(request.resource.data, userId)
+        && (
+          (
+            isBootstrapAdminEmail(request.auth.token.email)
+            && request.resource.data.companyId == 'wselent-default'
+            && request.resource.data.role == 'admin'
+            && request.resource.data.assignedObraIds == ['ALL']
+          ) || (
+            exists(/databases/$(database)/documents/invitations/$(request.auth.token.email))
+            && get(/databases/$(database)/documents/invitations/$(request.auth.token.email)).data.status == 'pending'
+            && request.resource.data.companyId == get(/databases/$(database)/documents/invitations/$(request.auth.token.email)).data.companyId
+            && request.resource.data.role == get(/databases/$(database)/documents/invitations/$(request.auth.token.email)).data.role
+            && request.resource.data.assignedObraIds == get(/databases/$(database)/documents/invitations/$(request.auth.token.email)).data.assignedObraIds
+          )
+        );
+
+      allow update: if (
+          isAdmin()
+          && resource.data.companyId == profile().data.companyId
+          && request.resource.data.companyId == resource.data.companyId
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.role in ['admin', 'storekeeper']
+          && (!isBootstrapAdminEmail(resource.data.email) || request.resource.data.role == 'admin')
+          && request.resource.data.assignedObraIds is list
+          && request.resource.data.assignedObraIds.size() <= 50
+        ) || (
+          isSignedIn()
+          && userId == request.auth.uid
+          && isBootstrapAdminEmail(request.auth.token.email)
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.email == request.auth.token.email
+          && request.resource.data.companyId == 'wselent-default'
+          && request.resource.data.role == 'admin'
+          && request.resource.data.assignedObraIds == ['ALL']
+          && request.resource.data.createdAt == resource.data.createdAt
+        );
+
+      allow delete: if false;
+    }
+
+    match /invitations/{email} {
+      allow get: if isSignedIn() && request.auth.token.email == email;
+      allow list: if isAdmin() && resource.data.companyId == profile().data.companyId;
+      allow create: if isAdmin()
+        && request.resource.data.email == email
+        && request.resource.data.companyId == profile().data.companyId
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.role in ['admin', 'storekeeper']
+        && request.resource.data.assignedObraIds is list
+        && request.resource.data.status in ['pending', 'revoked'];
+      allow update: if (
+          isAdmin()
+          && resource.data.companyId == profile().data.companyId
+          && request.resource.data.companyId == resource.data.companyId
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.status in ['pending', 'revoked']
+        ) || (
+          isSignedIn()
+          && request.auth.token.email == email
+          && resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedByUid', 'updatedAt'])
+          && request.resource.data.status == 'accepted'
+          && request.resource.data.acceptedByUid == request.auth.uid
+        );
+      allow delete: if isAdmin() && resource.data.companyId == profile().data.companyId;
+    }
+
+    match /obras/{obraId} {
+      allow list: if isAdmin()
+        && resource.data.companyId == profile().data.companyId;
+      allow read: if sameCompany(resource.data) && canAccessObra(obraId);
+      allow create: if isAdmin()
+        && sameCompany(request.resource.data)
+        && validObra(request.resource.data, obraId);
+      allow update: if isAdmin()
+        && sameCompany(resource.data)
+        && request.resource.data.companyId == resource.data.companyId
+        && request.resource.data.id == resource.data.id
+        && validObra(request.resource.data, obraId);
+      allow delete: if false;
+    }
+
+    match /employees/{employeeId} {
+      allow list: if isAdmin()
+        && resource.data.companyId == profile().data.companyId;
+      allow read: if sameCompany(resource.data) && (
+        canAccessObra(resource.data.obraId)
+        || ('temporaryObraId' in resource.data && resource.data.temporaryObraId is string && resource.data.temporaryObraId.size() > 0 && canAccessObra(resource.data.temporaryObraId))
+        || (
+          exists(/databases/$(database)/documents/temporaryEmployeeAccess/$(employeeId))
+          && get(/databases/$(database)/documents/temporaryEmployeeAccess/$(employeeId)).data.companyId == profile().data.companyId
+          && get(/databases/$(database)/documents/temporaryEmployeeAccess/$(employeeId)).data.active == true
+          && get(/databases/$(database)/documents/temporaryEmployeeAccess/$(employeeId)).data.startsAt <= request.time
+          && get(/databases/$(database)/documents/temporaryEmployeeAccess/$(employeeId)).data.endsAt >= request.time
+          && canAccessObra(get(/databases/$(database)/documents/temporaryEmployeeAccess/$(employeeId)).data.hostObraId)
+        )
+      );
+      allow create: if sameCompany(request.resource.data)
+        && canAccessObra(request.resource.data.obraId)
+        && validEmployee(request.resource.data, employeeId);
+      allow update: if sameCompany(resource.data)
+        && request.resource.data.companyId == resource.data.companyId
+        && request.resource.data.id == resource.data.id
+        && canAccessObra(resource.data.obraId)
+        && canAccessObra(request.resource.data.obraId)
+        && (
+          isAdmin()
+          || request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'name', 'cpf', 'jobTitle', 'isOutsourced', 'isActive', 'updatedAt'
+          ])
+        )
+        && validEmployee(request.resource.data, employeeId);
+      allow delete: if false;
+    }
+
+    match /materials/{materialId} {
+      // Catálogo administrativo e materiais antigos com saldo por obra coexistem.
+      allow read: if sameCompany(resource.data)
+        && (isAdmin() || (('obraId' in resource.data) && canAccessObra(resource.data.obraId)));
+      allow create: if isAdmin()
+        && sameCompany(request.resource.data)
+        && ('obraId' in request.resource.data)
+        && exists(/databases/$(database)/documents/obras/$(request.resource.data.obraId))
+        && get(/databases/$(database)/documents/obras/$(request.resource.data.obraId)).data.companyId == profile().data.companyId
+        && canAccessObra(request.resource.data.obraId)
+        && validLegacyMaterial(request.resource.data, materialId);
+      allow update: if (
+          isAdmin()
+          && sameCompany(resource.data)
+          && ('obraId' in resource.data)
+          && request.resource.data.companyId == resource.data.companyId
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.obraId == resource.data.obraId
+          && request.resource.data.obraName == resource.data.obraName
+          && validLegacyMaterial(request.resource.data, materialId)
+        ) || (
+          sameCompany(resource.data)
+          && ('obraId' in resource.data)
+          && canAccessObra(resource.data.obraId)
+          && request.resource.data.companyId == resource.data.companyId
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.obraId == resource.data.obraId
+          && request.resource.data.obraName == resource.data.obraName
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['quantity', 'updatedAt'])
+          && request.resource.data.quantity is int
+          && resource.data.quantity is int
+          && request.resource.data.quantity >= 0
+          && request.resource.data.quantity <= resource.data.quantity
+        );
+      allow create: if isAdmin() && sameCompany(request.resource.data)
+        && !('obraId' in request.resource.data) && validMaterial(request.resource.data, materialId);
+      allow update: if isAdmin() && sameCompany(resource.data)
+        && !('obraId' in resource.data) && !('obraId' in request.resource.data)
+        && request.resource.data.companyId == resource.data.companyId
+        && request.resource.data.id == resource.data.id
+        && validMaterial(request.resource.data, materialId);
+      allow delete: if false;
+    }
+
+    match /inventoryStock/{stockId} {
+      allow list: if isAdmin()
+        && resource.data.companyId == profile().data.companyId;
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if isAdmin()
+        && sameCompany(request.resource.data)
+        && canAccessObra(request.resource.data.obraId)
+        && validInventory(request.resource.data, stockId);
+      allow update: if (
+          isAdmin()
+          && sameCompany(resource.data)
+          && request.resource.data.companyId == resource.data.companyId
+          && request.resource.data.id == resource.data.id
+          && validInventory(request.resource.data, stockId)
+        ) || (
+          hasProfile()
+          && sameCompany(resource.data)
+          && canAccessObra(resource.data.obraId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['quantity', 'lowStockAlertSent', 'lastLowStockAlertAt', 'updatedAt'])
+          && request.resource.data.quantity is int
+          && request.resource.data.quantity >= 0
+          && request.resource.data.quantity <= resource.data.quantity
+          && validInventory(request.resource.data, stockId)
+        );
+      allow delete: if false;
+    }
+
+    match /temporaryAssignments/{assignmentId} {
+      allow list: if isAdmin() && sameCompany(resource.data);
+      allow read: if sameCompany(resource.data) && (canAccessObra(resource.data.homeObraId) || canAccessObra(resource.data.hostObraId));
+      allow create: if isAdmin()
+        && sameCompany(request.resource.data)
+        && request.resource.data.id == assignmentId
+        && request.resource.data.employeeId is string
+        && request.resource.data.homeObraId is string
+        && request.resource.data.hostObraId is string
+        && request.resource.data.homeObraId != request.resource.data.hostObraId
+        && request.resource.data.startsAt is timestamp
+        && request.resource.data.endsAt is timestamp
+        && request.resource.data.endsAt > request.resource.data.startsAt
+        && request.resource.data.reason is string && request.resource.data.reason.size() >= 5 && request.resource.data.reason.size() <= 300
+        && request.resource.data.status == 'ACTIVE'
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isAdmin()
+        && sameCompany(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+        && request.resource.data.status in ['ACTIVE', 'CANCELLED', 'EXPIRED'];
+      allow delete: if false;
+    }
+
+    match /temporaryEmployeeAccess/{employeeId} {
+      allow list: if isAdmin() && sameCompany(resource.data);
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.hostObraId);
+      allow create, update: if isAdmin()
+        && sameCompany(request.resource.data)
+        && request.resource.data.id == employeeId
+        && request.resource.data.employeeId == employeeId
+        && request.resource.data.hostObraId is string
+        && request.resource.data.assignmentId is string
+        && request.resource.data.startsAt is timestamp
+        && request.resource.data.endsAt is timestamp
+        && request.resource.data.active is bool;
+      allow delete: if false;
+    }
+
+    match /stockMovements/{movementId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if sameCompany(request.resource.data)
+        && canAccessObra(request.resource.data.obraId)
+        && validStockMovement(request.resource.data, movementId);
+      // Preserve the previous movement format for existing admin workflows.
+      allow create: if isAdmin() && sameCompany(request.resource.data)
+        && canAccessObra(request.resource.data.obraId)
+        && !('type' in request.resource.data)
+        && request.resource.data.keys().hasAll(['companyId', 'obraId', 'materialId', 'movementType', 'quantity', 'previousBalance', 'newBalance', 'reason', 'status'])
+        && request.resource.data.quantity is number && request.resource.data.quantity > 0
+        && request.resource.data.newBalance is number && request.resource.data.newBalance >= 0;
+      allow update, delete: if false;
+    }
+
+    // Older clients use these collections. Keep their data within the same
+    // company and assigned obra, just like the current inventory collection.
+    match /stockBalances/{balanceId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if isAdmin() && sameCompany(request.resource.data)
+        && canAccessObra(request.resource.data.obraId)
+        && request.resource.data.quantity is number && request.resource.data.quantity >= 0
+        && request.resource.data.availableQuantity is number && request.resource.data.availableQuantity >= 0;
+      allow update: if isAdmin() && sameCompany(resource.data)
+        && request.resource.data.companyId == resource.data.companyId
+        && request.resource.data.obraId == resource.data.obraId
+        && request.resource.data.quantity is number && request.resource.data.quantity >= 0
+        && request.resource.data.availableQuantity is number && request.resource.data.availableQuantity >= 0;
+      allow delete: if isAdmin() && sameCompany(resource.data);
+    }
+
+    match /stockLots/{lotId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if isAdmin() && sameCompany(request.resource.data)
+        && canAccessObra(request.resource.data.obraId)
+        && request.resource.data.quantity is number && request.resource.data.quantity >= 0;
+      allow update: if isAdmin() && sameCompany(resource.data)
+        && request.resource.data.companyId == resource.data.companyId
+        && request.resource.data.obraId == resource.data.obraId
+        && request.resource.data.quantity is number && request.resource.data.quantity >= 0;
+      allow delete: if isAdmin() && sameCompany(resource.data);
+    }
+
+    match /departments/{departmentId} {
+      allow read: if sameCompany(resource.data);
+    }
+
+    match /stockAlertSettings/{companyId} {
+      allow read: if hasProfile() && companyId == profile().data.companyId;
+      allow create: if isAdmin()
+        && companyId == profile().data.companyId
+        && validAlertSettings(request.resource.data, companyId);
+      allow update: if isAdmin()
+        && companyId == profile().data.companyId
+        && request.resource.data.companyId == resource.data.companyId
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && validAlertSettings(request.resource.data, companyId);
+      allow delete: if false;
+    }
+
+    match /mail/{mailId} {
+      allow create: if hasProfile()
+        && request.resource.data.keys().hasAll(['to', 'message', 'companyId', 'obraId', 'stockId', 'materialId', 'requestedBy', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['to', 'message', 'companyId', 'obraId', 'stockId', 'materialId', 'requestedBy', 'createdAt'])
+        && request.resource.data.companyId == profile().data.companyId
+        && request.resource.data.requestedBy == request.auth.uid
+        && request.resource.data.to is list && request.resource.data.to.size() == 1
+        && request.resource.data.to[0] == get(/databases/$(database)/documents/stockAlertSettings/$(profile().data.companyId)).data.recipientEmail
+        && request.resource.data.message is map
+        && request.resource.data.message.keys().hasAll(['subject', 'text', 'html'])
+        && request.resource.data.message.keys().hasOnly(['subject', 'text', 'html'])
+        && request.resource.data.message.subject is string && request.resource.data.message.subject.size() <= 200
+        && request.resource.data.message.text is string && request.resource.data.message.text.size() <= 2000
+        && request.resource.data.message.html is string && request.resource.data.message.html.size() <= 4000
+        && request.resource.data.materialId is string
+        && request.resource.data.stockId is string
+        && request.resource.data.obraId is string
+        && canAccessObra(request.resource.data.obraId)
+        && request.resource.data.createdAt is string;
+      allow read, update, delete: if false;
+    }
+
+    match /deliveries/{deliveryId} {
+      allow list: if isAdmin()
+        && resource.data.companyId == profile().data.companyId;
+      allow read: if sameCompany(resource.data) && (
+        canAccessObra(resource.data.obraId)
+        || ('serviceObraId' in resource.data && canAccessObra(resource.data.serviceObraId))
+        || ('stockObraId' in resource.data && canAccessObra(resource.data.stockObraId))
+      );
+      allow create: if isSignedIn()
+        && request.resource.data.id == deliveryId
+        && (
+          ('employeeHomeObraId' in request.resource.data && validDelivery(request.resource.data))
+          || (!('employeeHomeObraId' in request.resource.data) && validLegacyDelivery(request.resource.data))
+        );
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

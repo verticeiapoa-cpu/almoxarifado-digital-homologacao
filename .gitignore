@@ -1,0 +1,13 @@
+node_modules/
+build/*
+!build/sites-vite-plugin.ts
+.wrangler/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
