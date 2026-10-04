@@ -34,14 +34,19 @@ export const SignaturePad = forwardRef<SignaturePadRef, SignaturePadProps>(
         const canvas = padRef.current?.getCanvas(); // Use getCanvas() instead of getTrimmedCanvas() to avoid ESM issues with trim-canvas
         if (!canvas) return '';
         
+        // Persist a bounded image instead of the full device-pixel-ratio canvas.
+        // High-DPI phones can otherwise create unnecessarily large PNGs and
+        // make delivery saves/PDF generation consume far more memory than needed.
+        const maxOutputWidth = 900;
+        const scale = Math.min(1, maxOutputWidth / canvas.width);
         const bgCanvas = document.createElement('canvas');
-        bgCanvas.width = canvas.width;
-        bgCanvas.height = canvas.height;
+        bgCanvas.width = Math.max(1, Math.round(canvas.width * scale));
+        bgCanvas.height = Math.max(1, Math.round(canvas.height * scale));
         const ctx = bgCanvas.getContext('2d');
         if (ctx) {
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
-          ctx.drawImage(canvas, 0, 0);
+          ctx.drawImage(canvas, 0, 0, bgCanvas.width, bgCanvas.height);
         }
         return bgCanvas.toDataURL('image/png');
       },
