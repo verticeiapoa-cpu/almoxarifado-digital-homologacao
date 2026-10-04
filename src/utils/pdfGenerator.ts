@@ -182,8 +182,13 @@ export function downloadPdf(blob: Blob, filename: string) {
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  a.rel = 'noopener';
+  a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+
+  // Chrome/Android may start consuming the Blob after the synthetic click.
+  // Revoking it immediately can race the download and result in no file.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
