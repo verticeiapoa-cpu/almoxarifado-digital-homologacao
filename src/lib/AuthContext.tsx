@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { User, GoogleAuthProvider, getRedirectResult, signInWithPopup, signInWithRedirect, signOut as firebaseSignOut } from 'firebase/auth';
+import { User, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth';
 import { auth, db } from './firebase';
 import { doc, getDoc, getDocFromServer, getDocsFromServer, setDoc, updateDoc, getDocs, collection, query, where } from 'firebase/firestore';
 import { UserProfile, UserInvitation, Obra } from '../types';
@@ -31,7 +31,6 @@ const googleAuthErrorMessage = (error: unknown) => {
   return messages[code] || `Não foi possível concluir o login com Google (${code || 'erro desconhecido'}).`;
 };
 
-const shouldUseRedirectAuth = () => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
 async function withFirestoreRetry<T>(operation: () => Promise<T>, attempts = 3): Promise<T> {
   let lastError: unknown;
@@ -248,13 +247,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    getRedirectResult(auth).catch((error) => {
-      logError('google-auth-redirect-failed', error);
-      setAccessError(googleAuthErrorMessage(error));
-    });
-  }, []);
-
-  useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (u) => {
       setLoading(true);
       setUser(u);
@@ -311,10 +303,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     provider.setCustomParameters({ prompt: 'select_account' });
     setAccessError('');
     try {
-      if (shouldUseRedirectAuth()) {
-        await signInWithRedirect(auth, provider);
-        return;
-      }
       await signInWithPopup(auth, provider);
     } catch (error) {
       logError('google-auth-signin-failed', error);
