@@ -390,16 +390,34 @@ export default function NewDelivery() {
           const minimum = currentStock.minimumStock;
           const remainsAboveMinimum = minimum <= 0 || nextQuantity > minimum;
           const updated: InventoryStock = {
-            ...currentStock,
+            id: snapshot.id,
+            companyId: currentStock.companyId,
+            obraId: currentStock.obraId,
+            obraName: currentStock.obraName || stockObra.name,
+            materialId: currentStock.materialId,
+            materialDescription: currentStock.materialDescription,
+            ca: currentStock.ca || '',
             quantity: nextQuantity,
+            minimumStock: Number.isInteger(currentStock.minimumStock) ? currentStock.minimumStock : 0,
+            unit: currentStock.unit || 'UN',
             lowStockAlertSent: remainsAboveMinimum ? false : Boolean(currentStock.lowStockAlertSent),
+            ...(typeof currentStock.lastLowStockAlertAt === 'string' && currentStock.lastLowStockAlertAt
+              ? { lastLowStockAlertAt: currentStock.lastLowStockAlertAt }
+              : {}),
+            createdAt: currentStock.createdAt || now,
             updatedAt: now,
           };
-          transaction.update(snapshot.ref, {
-            quantity: updated.quantity,
-            lowStockAlertSent: updated.lowStockAlertSent,
-            updatedAt: updated.updatedAt,
-          });
+          if (isAdmin) {
+            // Replace the whole stock document so records created by older
+            // versions lose deprecated/null fields that current rules reject.
+            transaction.set(snapshot.ref, updated);
+          } else {
+            transaction.update(snapshot.ref, {
+              quantity: updated.quantity,
+              lowStockAlertSent: updated.lowStockAlertSent,
+              updatedAt: updated.updatedAt,
+            });
+          }
           const movementReference = doc(collection(db, 'stockMovements'));
           const movement: StockMovement = {
             id: movementReference.id,
@@ -426,6 +444,20 @@ export default function NewDelivery() {
       setPdfWarning('');
       setShowSuccess(true);
       setStocks(current => current.map(stock => updatedStocks.find(updated => updated.id === stock.id) || stock));
+
+      // Generate the just-confirmed ficha from the immutable delivery snapshot.
+      // This avoids a second Firestore query and makes the PDF available even
+      // when the historical query/index is temporarily unavailable.
+      try {
+        const { generateEmployeeFicha, downloadPdf } = await import('../utils/pdfGenerator');
+        const deliveryForPdf = { ...deliveryData, id: deliveryId } as unknown as Delivery;
+        const blob = await generateEmployeeFicha(emp, [deliveryForPdf]);
+        setGeneratedPdfBlob(blob);
+        downloadPdf(blob, `Ficha-EPI-${deliveryId}.pdf`);
+      } catch (pdfError) {
+        logWarning('delivery-auto-pdf-generation-failed', pdfError);
+        setPdfWarning('A entrega foi salva, mas o download automático do PDF não iniciou. Use o botão Baixar PDF para tentar novamente.');
+      }
 
       for (const stock of updatedStocks) {
         try {
