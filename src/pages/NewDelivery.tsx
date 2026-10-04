@@ -2,12 +2,13 @@ import React, { useState, useRef, useEffect } from 'react';
 import { SignaturePad, SignaturePadRef } from '../components/SignaturePad';
 import { Save, CheckCircle2, Download, Plus, Trash2, Repeat2, Warehouse, ArrowLeft, ArrowRight, ClipboardCheck } from 'lucide-react';
 import { cn } from '../components/Layout';
-import { Delivery, DeliveryItem, Employee, InventoryStock, StockMovement, TemporaryAssignment } from '../types';
+import { Delivery, DeliveryItem, Employee, InventoryStock, Obra, StockMovement, TemporaryAssignment } from '../types';
 import { useAuth } from '../lib/AuthContext';
 import { db } from '../lib/firebase';
-import { doc, collection, query, getDocs, getDoc, where, serverTimestamp, runTransaction, updateDoc } from 'firebase/firestore';
+import { doc, collection, query, getDocs, getDoc, getDocFromServer, where, serverTimestamp, runTransaction, updateDoc } from 'firebase/firestore';
 import { queueLowStockAlert } from '../lib/stockAlerts';
 import { logError, logWarning } from '../lib/logger';
+import { stockDocumentId } from '../lib/inventory';
 
 const MAX_DELIVERY_ITEMS = 5;
 
@@ -37,6 +38,8 @@ export default function NewDelivery() {
   const [generatedDeliveryId, setGeneratedDeliveryId] = useState<string>('');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [pdfWarning, setPdfWarning] = useState('');
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [stockWarning, setStockWarning] = useState('');
   const [currentStep, setCurrentStep] = useState(1);
   
   // Data from Firestore
@@ -81,10 +84,19 @@ export default function NewDelivery() {
       if (!profile || !stockObraId) { setStocks([]); return; }
       try {
         const snapshot = await getDocs(query(collection(db, 'inventoryStock'), where('companyId', '==', profile.companyId), where('obraId', '==', stockObraId)));
-        setStocks(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as InventoryStock)));
+        const loaded = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as InventoryStock));
+        const canonical = loaded.filter(stock => stock.id === stockDocumentId(stock.obraId, stock.materialId));
+        const byMaterial = new Map<string, InventoryStock>();
+        canonical.forEach(stock => byMaterial.set(stock.materialId, stock));
+        setStocks([...byMaterial.values()]);
+        const ignored = loaded.length - canonical.length;
+        setStockWarning(ignored > 0
+          ? `${ignored} saldo(s) de versão antiga foram ignorados para evitar uma baixa inconsistente. Abra Estoque e salve novamente esses EPIs antes de entregá-los.`
+          : '');
       } catch (error) {
         logError('delivery-stock-load-failed', error);
         setStocks([]);
+        setStockWarning('Não foi possível validar o estoque desta obra. Atualize a tela antes de registrar uma entrega.');
       }
     };
     fetchStock();
@@ -166,10 +178,25 @@ export default function NewDelivery() {
     if (items.length === 0) {
       newErrors.items = 'Adicione pelo menos um equipamento';
     } else {
-      const hasInvalidItem = items.some(item => !item.description.trim() || item.quantity === '' || item.quantity < 1);
-      if (hasInvalidItem) newErrors.items = 'Preencha a descrição e quantidade de todos os itens';
-      const insufficient = items.find(item => item.stockId && Number(item.quantity) > (stocks.find(stock => stock.id === item.stockId)?.quantity ?? 0));
-      if (insufficient) newErrors.items = `Saldo insuficiente para ${insufficient.description}`;
+      const hasInvalidItem = items.some(item => {
+        const quantity = Number(item.quantity);
+        return !item.description.trim()
+          || !item.materialId
+          || !item.stockId
+          || !Number.isInteger(quantity)
+          || quantity < 1
+          || quantity > 9999;
+      });
+      if (hasInvalidItem) newErrors.items = 'Selecione EPIs existentes no estoque e informe quantidades inteiras entre 1 e 9999';
+
+      const totals = new Map<string, number>();
+      items.forEach(item => {
+        if (item.stockId) totals.set(item.stockId, (totals.get(item.stockId) || 0) + Number(item.quantity || 0));
+      });
+      const insufficientStockId = [...totals.entries()].find(([stockId, quantity]) => quantity > (stocks.find(stock => stock.id === stockId)?.quantity ?? 0))?.[0];
+      if (insufficientStockId) {
+        newErrors.items = `Saldo insuficiente para ${stocks.find(stock => stock.id === insufficientStockId)?.materialDescription || 'o EPI selecionado'}`;
+      }
     }
     
     if (!signatureRef.current || signatureRef.current.isEmpty()) newErrors.signature = 'Assinatura é obrigatória';
@@ -182,82 +209,149 @@ export default function NewDelivery() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitting || !validate() || !user) return;
+    if (isSubmitting || !validate() || !user || !profile) return;
 
-    setIsSubmitting(true);
-    
-    const emp = employees.find(e => e.id === employeeId);
-    const stockObra = userObras.find(obra => obra.id === stockObraId);
-    const temporaryAssignment = assignments.find(item => item.employeeId === employeeId);
-    const isFloatingEmployee = emp?.obraId !== activeObraId;
-    if (!emp || !activeObra || !stockObra || (isFloatingEmployee && !temporaryAssignment)) {
-      setIsSubmitting(false);
+    const selectedEmployee = employees.find(item => item.id === employeeId);
+    const selectedStockObra = userObras.find(obra => obra.id === stockObraId);
+    if (!selectedEmployee || !activeObra || !selectedStockObra) {
+      setErrors(current => ({ ...current, save: 'Os dados da entrega mudaram. Volte à primeira etapa e selecione novamente funcionário e obra.' }));
       return;
     }
+
+    const normalizedItems: DeliveryItem[] = items.map(item => ({
+      ...(item.materialId ? { materialId: item.materialId } : {}),
+      ...(item.stockId ? { stockId: item.stockId } : {}),
+      ca: item.ca.trim(),
+      description: item.description.trim(),
+      quantity: Number(item.quantity),
+    }));
+
+    for (const item of normalizedItems) {
+      if (!item.materialId || !item.stockId || item.stockId !== stockDocumentId(stockObraId, item.materialId)) {
+        setErrors(current => ({ ...current, save: `O saldo de ${item.description || 'um EPI'} está em formato antigo ou inconsistente. Abra Estoque, salve novamente esse item e tente a entrega outra vez.` }));
+        return;
+      }
+    }
+
+    setIsSubmitting(true);
+    setErrors(current => ({ ...current, save: '' }));
 
     const deliveryRef = doc(collection(db, 'deliveries'));
     const deliveryId = deliveryRef.id;
     const now = new Date().toISOString();
     const signatureUrl = signatureRef.current?.getSignatureDataUrl() || '';
     const consentText = 'Declaro que recebi os EPIs relacionados, fui orientado quanto ao uso, guarda e conservação e confirmo a assinatura feita nesta tela.';
+
     try {
-    const signatureHash = await sha256(JSON.stringify({
-      deliveryId,
-      timestamp: now,
-      employeeId,
-      obraId: emp.obraId,
-      serviceObraId: activeObra.id,
-      stockObraId: stockObra.id,
-      items,
-      signatureUrl,
-      consentText,
-    }));
-    
-    const deliveryData = {
-      id: deliveryId,
-      timestamp: now,
-      serverCreatedAt: serverTimestamp(),
-      responsibleUser: user.displayName || user.email || 'Responsável',
-      companyId: profile?.companyId || 'wselent-default',
-      obraId: emp.obraId,
-      employeeHomeObraId: emp.obraId,
-      employeeHomeObraName: emp.obraName,
-      employeeHomeObraCno: emp.obraCno || '',
-      serviceObraId: activeObra.id,
-      serviceObraName: activeObra.name,
-      stockObraId: stockObra.id,
-      stockObraName: stockObra.name,
-      isFloatingEmployee,
-      temporaryAssignmentId: temporaryAssignment?.id || '',
-      temporaryAssignmentReason: temporaryAssignment?.reason || '',
-      employeeId,
-      employeeName: emp.name || 'Desconhecido',
-      employeeCpf: emp.cpf || '-',
-      employeeJobTitle: emp.jobTitle || '-',
-      employeeObraName: emp.obraName || '-',
-      employeeIsOutsourced: emp.isOutsourced || false,
-      items,
-      status: 'COMPLETED',
-      signatureUrl,
-      signatureHash,
-      audit: {
-        authUid: user.uid,
-        authEmail: user.email || '',
-        signedAt: now,
-        signatureMethod: 'drawn-on-screen' as const,
+      if (signatureUrl.length > 850000) {
+        throw new Error('A assinatura ficou grande demais para ser armazenada com segurança. Limpe a assinatura, assine novamente e tente salvar.');
+      }
+
+      const [employeeSnapshot, serviceObraSnapshot, stockObraSnapshot] = await Promise.all([
+        getDocFromServer(doc(db, 'employees', employeeId)),
+        getDocFromServer(doc(db, 'obras', activeObra.id)),
+        getDocFromServer(doc(db, 'obras', selectedStockObra.id)),
+      ]);
+
+      if (!employeeSnapshot.exists() || !serviceObraSnapshot.exists() || !stockObraSnapshot.exists()) {
+        throw new Error('Funcionário ou obra não existe mais no banco. Atualize a tela antes de tentar novamente.');
+      }
+
+      const emp = { id: employeeSnapshot.id, ...employeeSnapshot.data() } as Employee;
+      const serviceObra = { id: serviceObraSnapshot.id, ...serviceObraSnapshot.data() } as Obra;
+      const stockObra = { id: stockObraSnapshot.id, ...stockObraSnapshot.data() } as Obra;
+
+      if (emp.companyId !== profile.companyId || serviceObra.companyId !== profile.companyId || stockObra.companyId !== profile.companyId) {
+        throw new Error('Os dados selecionados não pertencem à empresa atual.');
+      }
+      if (!emp.name || !emp.cpf || !emp.jobTitle || !emp.obraId || !emp.obraName || typeof emp.isOutsourced !== 'boolean') {
+        throw new Error('O cadastro do funcionário está incompleto. Corrija nome, CPF, função e obra de vínculo antes da entrega.');
+      }
+      if (!serviceObra.name || !stockObra.name) {
+        throw new Error('O cadastro da obra está incompleto. Revise a obra antes da entrega.');
+      }
+
+      const isFloatingEmployee = emp.obraId !== serviceObra.id;
+      let temporaryAssignment: TemporaryAssignment | undefined;
+      if (isFloatingEmployee) {
+        const cachedAssignment = assignments.find(item => item.employeeId === employeeId && item.hostObraId === serviceObra.id);
+        if (!cachedAssignment) throw new Error('Este funcionário não possui uma alocação temporária ativa para a obra do atendimento.');
+
+        const assignmentSnapshot = await getDocFromServer(doc(db, 'temporaryAssignments', cachedAssignment.id));
+        if (!assignmentSnapshot.exists()) throw new Error('A alocação temporária não existe mais. Atualize a tela.');
+        temporaryAssignment = { id: assignmentSnapshot.id, ...assignmentSnapshot.data() } as TemporaryAssignment;
+
+        const startsAt = temporaryAssignment.startsAt && typeof temporaryAssignment.startsAt === 'object' && 'toMillis' in temporaryAssignment.startsAt
+          ? (temporaryAssignment.startsAt as { toMillis: () => number }).toMillis()
+          : new Date(String(temporaryAssignment.startsAt)).getTime();
+        const endsAt = temporaryAssignment.endsAt && typeof temporaryAssignment.endsAt === 'object' && 'toMillis' in temporaryAssignment.endsAt
+          ? (temporaryAssignment.endsAt as { toMillis: () => number }).toMillis()
+          : new Date(String(temporaryAssignment.endsAt)).getTime();
+        const currentTime = Date.now();
+        if (temporaryAssignment.status !== 'ACTIVE' || temporaryAssignment.employeeId !== employeeId || temporaryAssignment.hostObraId !== serviceObra.id || startsAt > currentTime || endsAt < currentTime) {
+          throw new Error('A alocação temporária expirou ou foi cancelada. Atualize a tela antes de registrar a entrega.');
+        }
+      }
+
+      const signatureHash = await sha256(JSON.stringify({
+        deliveryId,
+        timestamp: now,
+        employeeId,
+        obraId: emp.obraId,
+        serviceObraId: serviceObra.id,
+        stockObraId: stockObra.id,
+        items: normalizedItems,
+        signatureUrl,
         consentText,
-        userAgent: navigator.userAgent.slice(0, 300),
-      },
-      createdAt: now,
-      updatedAt: now,
-      createdBy: user.uid,
-    };
-    
+      }));
+
+      const deliveryData = {
+        id: deliveryId,
+        timestamp: now,
+        serverCreatedAt: serverTimestamp(),
+        responsibleUser: user.displayName || user.email || 'Responsável',
+        companyId: profile.companyId,
+        obraId: emp.obraId,
+        employeeHomeObraId: emp.obraId,
+        employeeHomeObraName: emp.obraName,
+        employeeHomeObraCno: emp.obraCno || '',
+        serviceObraId: serviceObra.id,
+        serviceObraName: serviceObra.name,
+        stockObraId: stockObra.id,
+        stockObraName: stockObra.name,
+        isFloatingEmployee,
+        temporaryAssignmentId: temporaryAssignment?.id || '',
+        temporaryAssignmentReason: temporaryAssignment?.reason || '',
+        employeeId,
+        employeeName: emp.name,
+        employeeCpf: emp.cpf,
+        employeeJobTitle: emp.jobTitle,
+        employeeObraName: emp.obraName,
+        employeeIsOutsourced: emp.isOutsourced,
+        items: normalizedItems,
+        status: 'COMPLETED',
+        signatureUrl,
+        signatureHash,
+        audit: {
+          authUid: user.uid,
+          authEmail: user.email || '',
+          signedAt: now,
+          signatureMethod: 'drawn-on-screen' as const,
+          consentText,
+          userAgent: navigator.userAgent.slice(0, 300),
+        },
+        createdAt: now,
+        updatedAt: now,
+        createdBy: user.uid,
+      };
+
       const trackedItems = new Map<string, { stock: InventoryStock; delivered: number }>();
-      for (const item of items) {
-        if (!item.stockId) continue;
+      for (const item of normalizedItems) {
+        if (!item.stockId || !item.materialId) continue;
         const stock = stocks.find(candidate => candidate.id === item.stockId);
-        if (!stock || stock.obraId !== stockObraId) throw new Error('O estoque selecionado mudou. Selecione novamente os itens.');
+        if (!stock || stock.obraId !== stockObra.id || stock.id !== stockDocumentId(stockObra.id, stock.materialId)) {
+          throw new Error(`O estoque de ${item.description} mudou ou precisa ser atualizado. Volte à etapa de equipamentos e selecione o item novamente.`);
+        }
         const current = trackedItems.get(stock.id);
         trackedItems.set(stock.id, {
           stock,
@@ -266,18 +360,32 @@ export default function NewDelivery() {
       }
 
       const trackedEntries = [...trackedItems.values()];
+      if (trackedEntries.length !== new Set(normalizedItems.map(item => item.stockId)).size) {
+        throw new Error('Um ou mais EPIs não estão vinculados corretamente ao estoque.');
+      }
+
       const updatedStocks: InventoryStock[] = [];
       await runTransaction(db, async transaction => {
         updatedStocks.length = 0;
         const snapshots = await Promise.all(
           trackedEntries.map(({ stock }) => transaction.get(doc(db, 'inventoryStock', stock.id)))
         );
-        transaction.set(deliveryRef, deliveryData);
+
         snapshots.forEach((snapshot, index) => {
           if (!snapshot.exists()) throw new Error('Item removido do estoque. Atualize a lista de equipamentos.');
           const entry = trackedEntries[index];
           const currentStock = { id: snapshot.id, ...snapshot.data() } as InventoryStock;
+          if (currentStock.id !== stockDocumentId(currentStock.obraId, currentStock.materialId)) {
+            throw new Error(`O saldo de ${currentStock.materialDescription} precisa ser migrado pelo administrador antes da entrega.`);
+          }
           if (entry.delivered > currentStock.quantity) throw new Error(`Saldo insuficiente para ${currentStock.materialDescription}`);
+        });
+
+        transaction.set(deliveryRef, deliveryData);
+
+        snapshots.forEach((snapshot, index) => {
+          const entry = trackedEntries[index];
+          const currentStock = { id: snapshot.id, ...snapshot.data() } as InventoryStock;
           const nextQuantity = currentStock.quantity - entry.delivered;
           const minimum = currentStock.minimumStock;
           const remainsAboveMinimum = minimum <= 0 || nextQuantity > minimum;
@@ -295,7 +403,7 @@ export default function NewDelivery() {
           const movementReference = doc(collection(db, 'stockMovements'));
           const movement: StockMovement = {
             id: movementReference.id,
-            companyId: profile?.companyId || 'wselent-default',
+            companyId: profile.companyId,
             obraId: stockObra.id,
             obraName: stockObra.name,
             materialId: currentStock.materialId,
@@ -314,12 +422,14 @@ export default function NewDelivery() {
       });
 
       setGeneratedDeliveryId(deliveryId);
+      setGeneratedPdfBlob(null);
+      setPdfWarning('');
       setShowSuccess(true);
       setStocks(current => current.map(stock => updatedStocks.find(updated => updated.id === stock.id) || stock));
 
       for (const stock of updatedStocks) {
         try {
-          const queued = await queueLowStockAlert(profile?.companyId || '', stock, user.uid);
+          const queued = await queueLowStockAlert(profile.companyId, stock, user.uid);
           if (queued) {
             const alertAt = new Date().toISOString();
             await updateDoc(doc(db, 'inventoryStock', stock.id), {
@@ -332,45 +442,58 @@ export default function NewDelivery() {
           logWarning('low-stock-alert-queue-failed', alertError);
         }
       }
-
-      // Now fetch all transactions for this employee to build their complete Ficha
-      try {
-      const deliveriesQuery = query(
-        collection(db, 'deliveries'),
-        where('companyId', '==', profile?.companyId || ''),
-        where('employeeId', '==', employeeId)
-      );
-      const deliveriesSnapshot = await getDocs(deliveriesQuery);
-      const allDeliveries = deliveriesSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Delivery));
-      
-      const { generateEmployeeFicha } = await import('../utils/pdfGenerator');
-      const pdfBlob = await generateEmployeeFicha(emp, allDeliveries);
-      setGeneratedPdfBlob(pdfBlob);
-      setGeneratedDeliveryId(deliveryId);
-      
-      setShowSuccess(true);
-      } catch (pdfError) {
-        logWarning('delivery-pdf-generation-failed', pdfError);
-        setPdfWarning('Entrega e baixa de estoque confirmadas. O PDF não pôde ser gerado agora; consulte o Histórico. Não repita esta entrega.');
-      }
     } catch (error) {
       logError('delivery-save-failed', error);
       const code = (error as { code?: string }).code;
       setErrors(current => ({ ...current, save: code === 'permission-denied'
-        ? 'O banco recusou esta entrega. Verifique as permissões da obra e as regras publicadas. Nenhuma baixa foi confirmada.'
+        ? 'O banco recusou a entrega porque algum cadastro, saldo ou permissão não corresponde ao estado atual. Nenhuma baixa foi confirmada. Atualize a tela e confira o EPI e a obra selecionados.'
         : error instanceof Error ? error.message : 'Não foi possível confirmar a entrega. Verifique sua conexão antes de tentar novamente.' }));
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleDownloadPdf = () => {
-    if (generatedPdfBlob && generatedDeliveryId) {
-      import('../utils/pdfGenerator').then(({ downloadPdf }) => {
-        downloadPdf(generatedPdfBlob, `Ficha-EPI-${generatedDeliveryId}.pdf`);
-      });
+  const handleDownloadPdf = async () => {
+    if (!generatedDeliveryId || !employeeId || !profile) return;
+    if (generatedPdfBlob) {
+      const { downloadPdf } = await import('../utils/pdfGenerator');
+      downloadPdf(generatedPdfBlob, `Ficha-EPI-${generatedDeliveryId}.pdf`);
+      return;
+    }
+
+    setIsGeneratingPdf(true);
+    setPdfWarning('');
+    try {
+      const employeeSnapshot = await getDocFromServer(doc(db, 'employees', employeeId));
+      if (!employeeSnapshot.exists()) throw new Error('Funcionário não encontrado para gerar a ficha.');
+      const employee = { id: employeeSnapshot.id, ...employeeSnapshot.data() } as Employee;
+
+      let deliveries: Delivery[] = [];
+      if (isAdmin) {
+        const deliveriesSnapshot = await getDocs(query(
+          collection(db, 'deliveries'),
+          where('companyId', '==', profile.companyId),
+          where('employeeId', '==', employeeId)
+        ));
+        deliveries = deliveriesSnapshot.docs.map(item => ({ id: item.id, ...item.data() } as Delivery));
+      } else {
+        const deliverySnapshot = await getDoc(doc(db, 'deliveries', generatedDeliveryId));
+        if (deliverySnapshot.exists()) deliveries = [{ id: deliverySnapshot.id, ...deliverySnapshot.data() } as Delivery];
+      }
+
+      if (deliveries.length === 0) throw new Error('A entrega foi salva, mas a ficha ainda não ficou disponível para consulta.');
+      const { generateEmployeeFicha, downloadPdf } = await import('../utils/pdfGenerator');
+      const blob = await generateEmployeeFicha(employee, deliveries);
+      setGeneratedPdfBlob(blob);
+      downloadPdf(blob, `Ficha-EPI-${generatedDeliveryId}.pdf`);
+    } catch (pdfError) {
+      logWarning('delivery-pdf-generation-failed', pdfError);
+      setPdfWarning(pdfError instanceof Error ? pdfError.message : 'A entrega está salva, mas o PDF não pôde ser gerado agora. Use o Histórico mais tarde.');
+    } finally {
+      setIsGeneratingPdf(false);
     }
   };
+
 
   const resetForm = () => {
     setEmployeeId('');
@@ -380,6 +503,7 @@ export default function NewDelivery() {
     setShowSuccess(false);
     setGeneratedPdfBlob(null);
     setGeneratedDeliveryId('');
+    setIsGeneratingPdf(false);
     setAcceptedTerms(false);
     setPdfWarning('');
     setCurrentStep(1);
@@ -393,11 +517,18 @@ export default function NewDelivery() {
     }
     if (currentStep === 2) {
       if (items.length === 0) nextErrors.items = 'Adicione pelo menos um equipamento';
-      if (items.some(item => !item.description.trim() || item.quantity === '' || item.quantity < 1)) {
-        nextErrors.items = 'Preencha a descrição e quantidade de todos os itens';
+      if (items.some(item => {
+        const quantity = Number(item.quantity);
+        return !item.description.trim() || !item.materialId || !item.stockId || !Number.isInteger(quantity) || quantity < 1 || quantity > 9999;
+      })) {
+        nextErrors.items = 'Selecione EPIs existentes no estoque e informe quantidades inteiras entre 1 e 9999';
       }
-      const insufficient = items.find(item => item.stockId && Number(item.quantity) > (stocks.find(stock => stock.id === item.stockId)?.quantity ?? 0));
-      if (insufficient) nextErrors.items = `Saldo insuficiente para ${insufficient.description}`;
+      const totals = new Map<string, number>();
+      items.forEach(item => {
+        if (item.stockId) totals.set(item.stockId, (totals.get(item.stockId) || 0) + Number(item.quantity || 0));
+      });
+      const insufficientStockId = [...totals.entries()].find(([stockId, quantity]) => quantity > (stocks.find(stock => stock.id === stockId)?.quantity ?? 0))?.[0];
+      if (insufficientStockId) nextErrors.items = `Saldo insuficiente para ${stocks.find(stock => stock.id === insufficientStockId)?.materialDescription || 'o EPI selecionado'}`;
     }
     setErrors(previous => ({ ...previous, ...nextErrors }));
     if (Object.keys(nextErrors).length === 0) setCurrentStep(step => Math.min(3, step + 1));
@@ -422,11 +553,11 @@ export default function NewDelivery() {
           <button 
             type="button"
             onClick={handleDownloadPdf}
-            disabled={!generatedPdfBlob}
-            className="flex items-center gap-2 px-4 py-2 border border-slate-300 rounded-lg text-slate-700 font-medium hover:bg-slate-50 transition-colors"
+            disabled={isGeneratingPdf}
+            className="flex items-center gap-2 px-4 py-2 border border-slate-300 rounded-lg text-slate-700 font-medium hover:bg-slate-50 transition-colors disabled:opacity-50"
           >
             <Download className="w-4 h-4" />
-            Baixar Ficha PDF
+            {isGeneratingPdf ? 'Gerando PDF...' : generatedPdfBlob ? 'Baixar Ficha PDF' : 'Gerar e baixar PDF'}
           </button>
           <button 
             type="button"
@@ -543,6 +674,7 @@ export default function NewDelivery() {
           </section>}
 
           {currentStep === 2 && <section className="delivery-section">
+            {stockWarning && <div role="status" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{stockWarning}</div>}
             <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-2">
               <div><span className="delivery-kicker">ETAPA 2</span><h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider">Equipamentos de Proteção (EPI)</h3><p className="text-xs text-slate-500 mt-1">Selecione os EPIs, confira o CA e informe a quantidade.</p></div>
               <button
@@ -605,11 +737,13 @@ export default function NewDelivery() {
                     <input 
                       type="number" 
                       min="1"
+                      max="9999"
                       step="1"
+                      inputMode="numeric"
                       value={item.quantity || ''}
                       onChange={(e) => {
                         const val = e.target.value;
-                        handleItemChange(index, 'quantity', val === '' ? '' : (parseInt(val, 10) || 1));
+                        handleItemChange(index, 'quantity', val === '' ? '' : Number(val));
                       }}
                       className="w-full px-3 py-2.5 sm:py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2bb2c8] text-sm min-h-[44px]"
                     />
