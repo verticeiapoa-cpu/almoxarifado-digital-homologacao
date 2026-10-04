@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { User, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth';
+import { User, GoogleAuthProvider, getRedirectResult, signInWithPopup, signInWithRedirect, signOut as firebaseSignOut } from 'firebase/auth';
 import { auth, db } from './firebase';
 import { doc, getDoc, getDocFromServer, getDocsFromServer, setDoc, updateDoc, getDocs, collection, query, where } from 'firebase/firestore';
 import { UserProfile, UserInvitation, Obra } from '../types';
@@ -16,6 +16,22 @@ const errorCode = (error: unknown) => {
   if (!error || typeof error !== 'object' || !('code' in error)) return '';
   return String(error.code).replace('firestore/', '');
 };
+
+const googleAuthErrorMessage = (error: unknown) => {
+  const code = errorCode(error);
+  const messages: Record<string, string> = {
+    'auth/unauthorized-domain': `O endereço ${window.location.hostname} ainda não está autorizado no Firebase Authentication.`,
+    'auth/operation-not-allowed': 'O login com Google ainda não está habilitado no Firebase Authentication.',
+    'auth/popup-blocked': 'O navegador bloqueou a janela do Google. Permita pop-ups para este site ou tente novamente.',
+    'auth/popup-closed-by-user': 'A janela do Google foi fechada antes de concluir o login. Tente novamente.',
+    'auth/network-request-failed': 'Não foi possível conectar ao Google. Verifique sua conexão e tente novamente.',
+    'auth/cancelled-popup-request': 'Outra tentativa de login está aberta. Conclua o acesso nessa janela.',
+    'auth/web-storage-unsupported': 'O navegador está bloqueando o armazenamento necessário para o login. Tente pelo Chrome sem modo anônimo.',
+  };
+  return messages[code] || `Não foi possível concluir o login com Google (${code || 'erro desconhecido'}).`;
+};
+
+const shouldUseRedirectAuth = () => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
 async function withFirestoreRetry<T>(operation: () => Promise<T>, attempts = 3): Promise<T> {
   let lastError: unknown;
@@ -232,6 +248,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
+    getRedirectResult(auth).catch((error) => {
+      logError('google-auth-redirect-failed', error);
+      setAccessError(googleAuthErrorMessage(error));
+    });
+  }, []);
+
+  useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (u) => {
       setLoading(true);
       setUser(u);
@@ -285,19 +308,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async () => {
     const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
     setAccessError('');
     try {
+      if (shouldUseRedirectAuth()) {
+        await signInWithRedirect(auth, provider);
+        return;
+      }
       await signInWithPopup(auth, provider);
     } catch (error) {
-      const code = errorCode(error);
-      const messages: Record<string, string> = {
-        'auth/unauthorized-domain': `O endereço ${window.location.hostname} ainda não está autorizado no Firebase Authentication.`,
-        'auth/popup-blocked': 'O navegador bloqueou a janela do Google. Abra o aplicativo no Chrome e permita pop-ups para este site.',
-        'auth/popup-closed-by-user': 'A janela do Google foi fechada antes de concluir o login. Tente novamente.',
-        'auth/network-request-failed': 'Não foi possível conectar ao Google. Verifique sua conexão e tente novamente.',
-        'auth/cancelled-popup-request': 'Outra tentativa de login está aberta. Conclua o acesso nessa janela.',
-      };
-      setAccessError(messages[code] || `Não foi possível concluir o login com Google (${code || 'erro desconhecido'}).`);
+      logError('google-auth-signin-failed', error);
+      setAccessError(googleAuthErrorMessage(error));
     }
   };
 
