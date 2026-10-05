@@ -103,8 +103,19 @@ describe('autenticação e convites', () => {
   });
 
   it('permite o bootstrap somente do administrador principal', async () => {
-    const db = env.authenticatedContext('main-admin', { email: ADMIN_EMAIL }).firestore();
+    const db = env.authenticatedContext('main-admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
     await assertSucceeds(setDoc(doc(db, 'users/main-admin'), profile('main-admin', ADMIN_EMAIL, 'admin', ['ALL'])));
+  });
+
+  it('bloqueia o bootstrap quando o e-mail administrativo não está verificado', async () => {
+    const db = env.authenticatedContext('unverified-admin', { email: ADMIN_EMAIL, email_verified: false }).firestore();
+    await assertFails(setDoc(doc(db, 'users/unverified-admin'), profile('unverified-admin', ADMIN_EMAIL, 'admin', ['ALL'])));
+  });
+
+  it('não permite um segundo e-mail de bootstrap administrativo', async () => {
+    const secondaryEmail = 'rmvmv1988@gmail.com';
+    const db = env.authenticatedContext('secondary-bootstrap', { email: secondaryEmail, email_verified: true }).firestore();
+    await assertFails(setDoc(doc(db, 'users/secondary-bootstrap'), profile('secondary-bootstrap', secondaryEmail, 'admin', ['ALL'])));
   });
 
   it('permite que um convidado crie apenas o perfil definido no convite', async () => {
@@ -122,7 +133,7 @@ describe('autenticação e convites', () => {
 
 describe('RBAC e isolamento', () => {
   it('permite consulta administrativa de alocações sem liberar outras empresas', async () => {
-    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL }).firestore();
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
     await assertSucceeds(getDocs(query(collection(db, 'temporaryAssignments'), where('companyId', '==', COMPANY), where('employeeId', '==', 'employee-a'))));
     await assertFails(getDocs(query(collection(db, 'temporaryAssignments'), where('companyId', '==', OTHER_COMPANY))));
     await assertFails(getDocs(collection(db, 'temporaryAssignments')));
@@ -144,12 +155,12 @@ describe('RBAC e isolamento', () => {
   });
 
   it('impede administrador de acessar outra empresa', async () => {
-    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL }).firestore();
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
     await assertFails(getDoc(doc(db, 'employees/employee-other')));
   });
 
   it('separa configuração administrativa da baixa operacional de estoque', async () => {
-    const adminDb = env.authenticatedContext('admin', { email: ADMIN_EMAIL }).firestore();
+    const adminDb = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
     const storekeeperDb = env.authenticatedContext('storekeeper', { email: 'almoxarife@example.com' }).firestore();
     await assertSucceeds(updateDoc(doc(adminDb, 'inventoryStock/obra-a__material-a'), { minimumStock: 6 }));
     await assertSucceeds(updateDoc(doc(storekeeperDb, 'inventoryStock/obra-a__material-a'), { quantity: 9, updatedAt: 'y' }));
@@ -237,7 +248,7 @@ describe('histórico de entregas', () => {
   });
 
   it('bloqueia entrega flutuante sem autorização temporária válida', async () => {
-    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL }).firestore();
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
     await assertFails(setDoc(doc(db, 'deliveries/floating-without-assignment'), {
       ...delivery('admin', ADMIN_EMAIL),
       id: 'floating-without-assignment',
