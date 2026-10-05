@@ -6,7 +6,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { collection, deleteDoc, doc, getDoc, getDocs, query, where, serverTimestamp, setDoc, Timestamp, updateDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, query, where, runTransaction, serverTimestamp, setDoc, Timestamp, updateDoc } from 'firebase/firestore';
 
 const COMPANY = 'wselent-default';
 const OTHER_COMPANY = 'other-company';
@@ -181,6 +181,102 @@ describe('RBAC e isolamento', () => {
       message: { subject: 'Estoque baixo', text: 'Saldo baixo', html: '<p>Saldo baixo</p>' },
       companyId: COMPANY, obraId: 'obra-a', stockId: 'obra-a__material-a', materialId: 'material-a', requestedBy: 'storekeeper', createdAt: '2026-09-07T00:00:00.000Z',
     }));
+  });
+});
+
+describe('transação operacional de entrega', () => {
+  it('confirma atomicamente ficha, baixa e movimento como administrador', async () => {
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    const stockRef = doc(db, 'inventoryStock/obra-a__material-a');
+    const deliveryId = 'delivery-tx-admin';
+    const movementId = 'movement-tx-admin';
+
+    await assertSucceeds(runTransaction(db, async transaction => {
+      const stockSnapshot = await transaction.get(stockRef);
+      const stock = stockSnapshot.data()!;
+      const nextQuantity = stock.quantity - 1;
+
+      transaction.set(doc(db, `deliveries/${deliveryId}`), {
+        ...delivery('admin', ADMIN_EMAIL),
+        id: deliveryId,
+      });
+
+      transaction.set(stockRef, {
+        ...stock,
+        quantity: nextQuantity,
+        lowStockAlertSent: false,
+        updatedAt: '2026-10-05T00:00:00.000Z',
+      });
+
+      transaction.set(doc(db, `stockMovements/${movementId}`), {
+        id: movementId,
+        companyId: COMPANY,
+        obraId: 'obra-a',
+        obraName: 'OBRA A',
+        materialId: 'material-a',
+        materialDescription: 'CAPACETE',
+        type: 'EPI_DELIVERY',
+        quantity: -1,
+        balanceBefore: stock.quantity,
+        balanceAfter: nextQuantity,
+        deliveryId,
+        createdAt: '2026-10-05T00:00:00.000Z',
+        createdBy: 'admin',
+      });
+    }));
+
+    const [deliverySnapshot, stockSnapshot, movementSnapshot] = await Promise.all([
+      getDoc(doc(db, `deliveries/${deliveryId}`)),
+      getDoc(stockRef),
+      getDoc(doc(db, `stockMovements/${movementId}`)),
+    ]);
+    if (!deliverySnapshot.exists()) throw new Error('A ficha não foi persistida.');
+    if (stockSnapshot.data()?.quantity !== 9) throw new Error('A baixa de estoque não foi aplicada.');
+    if (movementSnapshot.data()?.balanceAfter !== 9) throw new Error('O movimento não refletiu o saldo final.');
+  });
+
+  it('confirma atomicamente ficha, baixa e movimento como almoxarife autorizado', async () => {
+    const db = env.authenticatedContext('storekeeper', { email: 'almoxarife@example.com' }).firestore();
+    const stockRef = doc(db, 'inventoryStock/obra-a__material-a');
+    const deliveryId = 'delivery-tx-storekeeper';
+    const movementId = 'movement-tx-storekeeper';
+
+    await assertSucceeds(runTransaction(db, async transaction => {
+      const stockSnapshot = await transaction.get(stockRef);
+      const stock = stockSnapshot.data()!;
+      const nextQuantity = stock.quantity - 2;
+
+      transaction.set(doc(db, `deliveries/${deliveryId}`), {
+        ...delivery('storekeeper', 'almoxarife@example.com'),
+        id: deliveryId,
+        items: [{ description: 'CAPACETE', ca: '123', quantity: 2, materialId: 'material-a', stockId: 'obra-a__material-a' }],
+      });
+
+      transaction.update(stockRef, {
+        quantity: nextQuantity,
+        lowStockAlertSent: false,
+        updatedAt: '2026-10-05T00:00:00.000Z',
+      });
+
+      transaction.set(doc(db, `stockMovements/${movementId}`), {
+        id: movementId,
+        companyId: COMPANY,
+        obraId: 'obra-a',
+        obraName: 'OBRA A',
+        materialId: 'material-a',
+        materialDescription: 'CAPACETE',
+        type: 'EPI_DELIVERY',
+        quantity: -2,
+        balanceBefore: stock.quantity,
+        balanceAfter: nextQuantity,
+        deliveryId,
+        createdAt: '2026-10-05T00:00:00.000Z',
+        createdBy: 'storekeeper',
+      });
+    }));
+
+    const stockSnapshot = await getDoc(stockRef);
+    if (stockSnapshot.data()?.quantity !== 8) throw new Error('A baixa do almoxarife não foi aplicada.');
   });
 });
 
