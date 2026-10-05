@@ -56,13 +56,11 @@ service cloud.firestore {
 
     function validItem(item) {
       return item is map
-        && item.keys().hasOnly(['description', 'ca', 'quantity', 'materialId', 'stockId'])
-        && item.description is string
-        && item.description.size() > 0 && item.description.size() <= 200
+        && item.description is string && item.description.size() > 0 && item.description.size() <= 200
         && item.ca is string && item.ca.size() <= 50
         && item.quantity is int && item.quantity > 0 && item.quantity <= 9999
-        && (!('materialId' in item) || (item.materialId is string && item.materialId.size() <= 128))
-        && (!('stockId' in item) || (item.stockId is string && item.stockId.size() <= 260));
+        && item.materialId is string && item.materialId.size() > 0 && item.materialId.size() <= 128
+        && item.stockId is string && item.stockId.size() > 0 && item.stockId.size() <= 260;
     }
 
     function validItemAt(items, index) {
@@ -70,9 +68,6 @@ service cloud.firestore {
     }
 
     function validItems(items) {
-      // The UI caps a delivery at five EPIs. Keeping the rule at the same
-      // limit avoids Firestore's 1000-expression evaluation ceiling while
-      // still validating every item accepted by the application.
       return items is list && items.size() > 0 && items.size() <= 5
         && validItemAt(items, 0) && validItemAt(items, 1)
         && validItemAt(items, 2) && validItemAt(items, 3)
@@ -215,37 +210,24 @@ service cloud.firestore {
     }
 
     function validDelivery(data) {
-      // Keep this validator intentionally compact. Firestore Security Rules
-      // cap a request at 1000 evaluated expressions, so duplicating giant
-      // hasAll/hasOnly lists can turn a valid write into PERMISSION_DENIED.
       let employee = get(/databases/$(database)/documents/employees/$(data.employeeId)).data;
       let serviceObra = get(/databases/$(database)/documents/obras/$(data.serviceObraId)).data;
       let stockObra = get(/databases/$(database)/documents/obras/$(data.stockObraId)).data;
 
-      return data.id is string && data.id.size() > 0 && data.id.size() <= 128
-        && data.timestamp is string && data.timestamp.size() <= 50
-        && data.serverCreatedAt is timestamp && data.serverCreatedAt == request.time
-        && data.responsibleUser is string && data.responsibleUser.size() <= 100
-        && data.companyId is string && data.companyId.size() > 0 && data.companyId.size() <= 100
-        && data.obraId is string && data.obraId.size() > 0 && data.obraId.size() <= 128
-        && data.employeeId is string && data.employeeId.size() > 0 && data.employeeId.size() <= 128
-        && data.employeeName is string && data.employeeName.size() > 0 && data.employeeName.size() <= 100
-        && data.employeeCpf is string && data.employeeCpf.size() <= 20
-        && data.employeeJobTitle is string && data.employeeJobTitle.size() <= 100
-        && data.employeeObraName is string && data.employeeObraName.size() <= 128
-        && data.employeeIsOutsourced is bool
-        && data.employeeHomeObraId is string && data.employeeHomeObraId == data.obraId
-        && data.employeeHomeObraName is string && data.employeeHomeObraName.size() > 0 && data.employeeHomeObraName.size() <= 128
-        && data.employeeHomeObraCno is string && data.employeeHomeObraCno.size() <= 30
-        && data.serviceObraId is string && data.serviceObraId.size() > 0 && data.serviceObraId.size() <= 128
-        && data.serviceObraName is string && data.serviceObraName.size() > 0 && data.serviceObraName.size() <= 128
-        && data.stockObraId is string && data.stockObraId.size() > 0 && data.stockObraId.size() <= 128
-        && data.stockObraName is string && data.stockObraName.size() > 0 && data.stockObraName.size() <= 128
-        && data.isFloatingEmployee is bool
-        && data.temporaryAssignmentId is string && data.temporaryAssignmentId.size() <= 128
-        && data.temporaryAssignmentReason is string && data.temporaryAssignmentReason.size() <= 300
-        && validItems(data.items)
+      return hasProfile()
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 128
+        && data.companyId == profile().data.companyId
+        && data.createdBy == request.auth.uid
         && data.status == 'COMPLETED'
+        && data.serverCreatedAt is timestamp && data.serverCreatedAt == request.time
+        && data.timestamp is string && data.timestamp.size() <= 50
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.updatedAt == data.createdAt
+        && data.employeeId is string && data.employeeId.size() > 0 && data.employeeId.size() <= 128
+        && data.employeeHomeObraId is string && data.employeeHomeObraId == data.obraId
+        && data.serviceObraId is string && canAccessObra(data.serviceObraId)
+        && data.stockObraId is string && canAccessObra(data.stockObraId)
+        && validItems(data.items)
         && data.signatureUrl is string && data.signatureUrl.size() > 100 && data.signatureUrl.size() <= 900000
         && data.signatureHash is string && data.signatureHash.matches('^[a-f0-9]{64}$')
         && data.audit is map
@@ -254,38 +236,24 @@ service cloud.firestore {
         && data.audit.signedAt == data.timestamp
         && data.audit.signatureMethod == 'drawn-on-screen'
         && data.audit.consentText is string && data.audit.consentText.size() > 20 && data.audit.consentText.size() <= 500
-        && (!('userAgent' in data.audit) || (data.audit.userAgent is string && data.audit.userAgent.size() <= 300))
-        && data.createdAt is string && data.createdAt.size() <= 50
-        && data.updatedAt == data.createdAt
-        && data.createdBy == request.auth.uid
-        && sameCompany(data)
         && employee.companyId == data.companyId
         && employee.obraId == data.employeeHomeObraId
         && employee.name == data.employeeName
         && employee.cpf == data.employeeCpf
         && employee.jobTitle == data.employeeJobTitle
-        && employee.obraName == data.employeeHomeObraName
-        && employee.obraName == data.employeeObraName
         && employee.isOutsourced == data.employeeIsOutsourced
-        && (
-          (!('obraCno' in employee) && data.employeeHomeObraCno == '')
-          || employee.obraCno == data.employeeHomeObraCno
-        )
         && serviceObra.companyId == data.companyId
         && serviceObra.name == data.serviceObraName
         && stockObra.companyId == data.companyId
         && stockObra.name == data.stockObraName
-        && canAccessObra(data.serviceObraId)
-        && canAccessObra(data.stockObraId)
         && (
           (
-            !data.isFloatingEmployee
+            data.isFloatingEmployee == false
             && data.employeeHomeObraId == data.serviceObraId
             && data.temporaryAssignmentId == ''
-            && data.temporaryAssignmentReason == ''
           )
           || (
-            data.isFloatingEmployee
+            data.isFloatingEmployee == true
             && data.employeeHomeObraId != data.serviceObraId
             && hasActiveTemporaryAccess(data.employeeId, data.serviceObraId, data.temporaryAssignmentId)
           )
