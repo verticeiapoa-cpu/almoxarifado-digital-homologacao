@@ -16,44 +16,83 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+      PROJECT_ID: gen-lang-client-0038131539
+      DATABASE_ID: ai-studio-docbrief-694b79f8-8d07-4aec-ab6b-3d02339ff834
     steps:
       - uses: actions/checkout@v4
-
-      - name: Authenticate to Google Cloud
-        id: auth
-        uses: google-github-actions/auth@v3
-        with:
-          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-          project_id: gen-lang-client-0038131539
-          token_format: access_token
-          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
 
       - name: Deploy Firestore rules via Firebase Rules API
-        env:
-          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
-          PROJECT_ID: gen-lang-client-0038131539
-          DATABASE_ID: ai-studio-docbrief-694b79f8-8d07-4aec-ab6b-3d02339ff834
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
           const fs = require('fs');
+          const crypto = require('crypto');
 
-          const token = process.env.ACCESS_TOKEN;
           const project = process.env.PROJECT_ID;
           const database = process.env.DATABASE_ID;
-          if (!token) throw new Error('Google access token was not generated.');
+          const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '';
+          if (!raw) throw new Error('Firebase service account secret is empty.');
 
-          const rules = fs.readFileSync('firestore.rules', 'utf8');
+          let sa;
+          try {
+            sa = JSON.parse(raw.trim().replace(/^\uFEFF/, ''));
+          } catch {
+            throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.');
+          }
+
+          if (sa.type !== 'service_account' || !sa.client_email || !sa.private_key) {
+            throw new Error('Secret is not a valid Google service-account key.');
+          }
+          if (sa.project_id && sa.project_id !== project) {
+            throw new Error('Service-account key belongs to a different project.');
+          }
+
+          const b64url = input => Buffer.from(input).toString('base64url');
+          const now = Math.floor(Date.now() / 1000);
+          const header = { alg: 'RS256', typ: 'JWT', kid: sa.private_key_id };
+          const payload = {
+            iss: sa.client_email,
+            scope: 'https://www.googleapis.com/auth/cloud-platform',
+            aud: 'https://oauth2.googleapis.com/token',
+            iat: now,
+            exp: now + 3600
+          };
+          const unsigned = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
+          const signature = crypto.sign('RSA-SHA256', Buffer.from(unsigned), sa.private_key).toString('base64url');
+          const assertion = `${unsigned}.${signature}`;
+
+          const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+              assertion
+            })
+          });
+          const tokenBody = await tokenRes.json();
+          if (!tokenRes.ok || !tokenBody.access_token) {
+            throw new Error(`OAuth token exchange failed: ${tokenBody.error_description || tokenBody.error || tokenRes.status}`);
+          }
+
+          const token = tokenBody.access_token;
           const base = 'https://firebaserules.googleapis.com/v1';
-          const auth = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+          const authHeaders = {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          };
 
           async function request(url, options = {}) {
-            const res = await fetch(url, { ...options, headers: { ...auth, ...(options.headers || {}) } });
+            const res = await fetch(url, {
+              ...options,
+              headers: { ...authHeaders, ...(options.headers || {}) }
+            });
             const text = await res.text();
             let body = null;
             try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
@@ -63,6 +102,8 @@ jobs:
             }
             return body;
           }
+
+          const rules = fs.readFileSync('firestore.rules', 'utf8');
 
           const ruleset = await request(`${base}/projects/${project}/rulesets`, {
             method: 'POST',
@@ -85,7 +126,7 @@ jobs:
 
           let exists = false;
           {
-            const res = await fetch(releaseUrl, { headers: auth });
+            const res = await fetch(releaseUrl, { headers: authHeaders });
             if (res.status === 200) exists = true;
             else if (res.status !== 404) {
               const text = await res.text();
