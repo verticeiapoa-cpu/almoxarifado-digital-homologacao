@@ -58,4 +58,24 @@ describe('geração de PDF da ficha de EPI', () => {
     expect(blob.type).toBe('application/pdf');
     expect(blob.size).toBeGreaterThan(1000);
   });
+  it.each(['constructor', '__proto__', 'toString'])('gera ficha para obra com nome %s', async obraName => {
+    const employee = { id: 'e', obraId: 'obra', obraName, name: 'NOME', cpf: '529.982.247-25', jobTitle: 'CARGO', isOutsourced: false } as Employee;
+    const delivery = { id: 'd', obraId: 'obra', timestamp: '2026-10-05', employeeHomeObraName: obraName, items: [{ description: 'EPI', ca: '123', quantity: 1 }] } as Delivery;
+    expect((await generateEmployeeFicha(employee, [delivery])).size).toBeGreaterThan(1000);
+  });
+  it('mantém textos longos e hash completo em múltiplas páginas', async () => {
+    const employee = { id: 'e', obraId: 'obra', obraName: 'OBRA', name: 'NOME '.repeat(18), cpf: '529.982.247-25', jobTitle: 'CARGO '.repeat(16), isOutsourced: false } as Employee;
+    const deliveries = Array.from({ length: 36 }, (_, i) => ({ id: `entrega-${i}`, obraId: 'obra', timestamp: '2026-10-05', signatureHash: 'abcdef0123456789'.repeat(4), items: [{ description: 'DESCRICAO COMPLETA '.repeat(12) + 'FINALUNICO', ca: '123', quantity: 1 }] } as Delivery));
+    const content = await (await generateEmployeeFicha(employee, deliveries)).text();
+    expect(content.match(/FINALUNICO/g)).toHaveLength(36);
+    expect(content).toContain('abcdef0123456789'.repeat(4));
+    expect((content.match(/\/Type \/Page\b/g) || []).length).toBeGreaterThan(1);
+  });
+  it('separa obras com o mesmo nome e identificadores diferentes', async () => {
+    const employee = { id: 'e', obraId: 'obra', obraName: 'MESMO NOME', name: 'NOME', cpf: '529.982.247-25', jobTitle: 'CARGO' } as Employee;
+    const deliveries = ['a', 'b'].map(id => ({ id, obraId: id, employeeHomeObraName: 'MESMO NOME', timestamp: '2026-10-05', items: [{ description: 'EPI', ca: '', quantity: 1 }] } as Delivery));
+    const content = await (await generateEmployeeFicha(employee, deliveries)).text();
+    expect((content.match(/\/Type \/Page\b/g) || []).length).toBe(2);
+  });
+
 });

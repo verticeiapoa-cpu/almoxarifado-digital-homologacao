@@ -7,6 +7,12 @@ button, input, select, textarea { font: inherit; }
 button { cursor: pointer; min-height: 44px; }
 button:disabled { cursor: wait; opacity: .6; }
 main { min-width: 0; }
+.app-content { padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px)); }
+@media(min-width:1024px) { .app-content { padding-bottom: 1.5rem; } }
+.delivery-review-items { width:100%; border-collapse:collapse; margin-bottom:1.4rem; font-size:.875rem; }
+.delivery-review-items th,.delivery-review-items td { padding:.65rem .5rem; text-align:left; border-bottom:1px solid #dce8eb; overflow-wrap:anywhere; }
+.delivery-review-items th { color:#526a73; font-size:.75rem; }
+.delivery-review-items table { width:100%; border-collapse:collapse; }
 .employee-temporary { padding: 1.25rem; border-left: 3px solid #149eb4; background: #f1f8fa; }
 .employee-temporary h2 { font-size: 1.125rem; }
 .employee-temporary form { box-shadow: none; border-radius: 8px; }

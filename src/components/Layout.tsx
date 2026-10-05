@@ -117,7 +117,7 @@ export default function Layout() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 pb-24 sm:pb-6">
+      <main className="app-content flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6">
         {accessError && (
           <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />

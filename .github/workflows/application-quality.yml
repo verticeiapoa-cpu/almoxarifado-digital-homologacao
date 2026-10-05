@@ -6,6 +6,11 @@ on:
     branches: [main]
     paths:
       - 'src/**'
+      - 'server/**'
+      - 'api/**'
+      - 'worker/**'
+      - 'vercel.json'
+      - 'vitest.unit.config.ts'
       - 'tests/**'
       - 'package.json'
       - 'package-lock.json'
@@ -15,6 +20,11 @@ on:
   pull_request:
     paths:
       - 'src/**'
+      - 'server/**'
+      - 'api/**'
+      - 'worker/**'
+      - 'vercel.json'
+      - 'vitest.unit.config.ts'
       - 'tests/**'
       - 'package.json'
       - 'package-lock.json'
@@ -35,8 +45,8 @@ jobs:
       - run: npm ci
       - name: TypeScript
         run: npm run lint
-      - name: PDF generation
-        run: npx vitest run tests/pdfGenerator.test.ts
+      - name: Unit regression tests
+        run: npm run test:unit
       - name: Production build
         run: npm run build
       - name: Production dependency audit

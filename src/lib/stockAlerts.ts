@@ -56,6 +56,7 @@ export async function queueLowStockAlert(
   if (!currentUser || currentUser.uid !== requestedBy) throw new Error('Sessão inválida para envio do alerta.');
   const token = await currentUser.getIdToken();
   const response = await fetch('/api/stock-alert', {
+    signal: AbortSignal.timeout(15_000),
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
     body: JSON.stringify({ companyId, stockId: stock.id }),

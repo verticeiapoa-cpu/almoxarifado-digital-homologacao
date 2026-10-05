@@ -4,7 +4,7 @@ Aplicativo responsivo para registrar entregas de EPI, coletar assinatura eletrô
 
 ## Módulos
 
-1. Nova ficha de EPI com vários itens, item avulso, CA, quantidade, aceite e assinatura.
+1. Nova ficha de EPI com até cinco itens vinculados ao estoque, CA, quantidade, revisão, aceite e assinatura.
 2. Histórico imutável com pesquisa por nome, CPF, cargo ou obra e PDF separado pela obra de vínculo.
 3. Funcionários próprios/terceirizados, vínculo permanente com CNO e alocação temporária em outra obra.
 4. Catálogo de EPIs global com saldo e estoque mínimo independentes por obra.
@@ -12,7 +12,7 @@ Aplicativo responsivo para registrar entregas de EPI, coletar assinatura eletrô
 6. Convites, usuários, perfis e obras autorizadas.
 7. Seletor global de obra e navegação responsiva.
 8. Login Google, RBAC e isolamento por empresa/obra nas regras do Firestore.
-9. Fila de alertas de estoque baixo por obra, preparada para envio seguro pelo Brevo.
+9. Alertas de estoque baixo por obra, enviados por API autenticada com Brevo configurado.
 
 ## Funcionário flutuante
 
@@ -27,7 +27,7 @@ O almoxarife só consegue selecionar estoques das obras autorizadas no próprio 
 
 ## Rodar localmente
 
-Requisitos: Node.js 20 ou superior.
+Requisitos: Node.js 24 (mesma versão usada no deploy e na integração contínua).
 
 ```bash
 npm install
@@ -38,11 +38,12 @@ npm run dev
 
 ```bash
 npm run lint
+npm run test:unit
 npm run build
 npm audit --omit=dev
 ```
 
-Os testes das regras exigem Java 11+ e o download inicial do emulador do Firestore:
+Os testes das regras exigem Java 21+ e o download inicial do emulador do Firestore:
 
 ```bash
 npm run test:rules
@@ -71,19 +72,25 @@ O arquivo `firebase.json` aponta explicitamente para o banco nomeado. Não publi
 
 ## Ativação dos alertas pelo Brevo
 
-A aplicação grava cada aviso autorizado na coleção `mail`. O envio deve ser processado em um ambiente de servidor, usando a chave do Brevo como segredo; nunca inclua essa chave no código do navegador. O destinatário é configurável pelo administrador em **Mais > Alertas de estoque**.
+O destinatário é configurável pelo administrador em **Mais > Alertas de estoque**. Configure no ambiente de servidor da Vercel:
 
-Enquanto o processador seguro do Brevo não estiver ativo, os avisos ficam registrados na fila, mas nenhum e-mail é transmitido.
+- `BREVO_API_KEY`: chave do serviço (segredo; nunca use prefixo `VITE_`).
+- `BREVO_SENDER_EMAIL`: remetente validado no Brevo.
+- `BREVO_SENDER_NAME`: nome opcional, padrão `WSELENT`.
 
-## Implantação da interface
+Após configurar as variáveis, faça um novo deploy. `GET /api/stock-alert/status` informa apenas se as variáveis obrigatórias existem. `POST /api/stock-alert` exige token Firebase válido e verificado, lê o estoque e as configurações com as permissões do usuário e envia somente alertas devidos. Os testes usam transporte simulado e não enviam mensagens reais.
 
-O build gera a pasta `dist`:
+Sem essas variáveis, a entrega e a baixa de estoque continuam funcionando; os e-mails ficam indisponíveis. Esta versão não mantém uma fila de reenvio automático dos alertas que falharem.
+
+## Implantação da interface e da API
 
 ```bash
 npm run build
 ```
 
-O `vercel.json` contém o redirecionamento necessário para que rotas como `/history` e `/employees` continuem funcionando após atualizar a página.
+O build da interface fica em `dist/client`. Os arquivos `api/stock-alert.ts` e `api/stock-alert/status.ts` são Vercel Functions; o fallback da interface exclui `/api/`. O Worker de desenvolvimento reutiliza a mesma implementação do servidor.
+
+Os testes de regressão cobrem cadastro, seleção por código, quantidade, revisão, assinatura, envio simulado e PDF. A validação real após login depende de uma sessão Google autorizada; os testes simulados não substituem essa confirmação.
 
 ## Observação sobre assinatura
 

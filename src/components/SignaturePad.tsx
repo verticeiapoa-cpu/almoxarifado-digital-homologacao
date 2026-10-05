@@ -55,24 +55,37 @@ export const SignaturePad = forwardRef<SignaturePadRef, SignaturePadProps>(
     // Resize canvas on window resize to ensure correct coordinate mapping
     useEffect(() => {
       const handleResize = () => {
-        if (wrapperRef.current && padRef.current) {
-          const existingSignature = padRef.current.toData();
+        if (wrapperRef.current && padRef.current && wrapperRef.current.offsetWidth > 0) {
+          // signature_pad 2.x returns point-group objects; its DefinitelyTyped declaration uses an older shape.
+          const existingSignature = padRef.current.toData() as unknown as Array<{ color: string; points: Array<{ x: number; y: number; time: number }> }>;
           const canvas = padRef.current.getCanvas();
+          const oldWidth = canvas.width / (canvas.dataset.ratio ? Number(canvas.dataset.ratio) : 1);
+          const oldHeight = canvas.height / (canvas.dataset.ratio ? Number(canvas.dataset.ratio) : 1);
           const ratio = Math.max(window.devicePixelRatio || 1, 1);
           canvas.width = wrapperRef.current.offsetWidth * ratio;
           canvas.height = wrapperRef.current.offsetHeight * ratio;
+          canvas.dataset.ratio = String(ratio);
           canvas.getContext('2d')?.scale(ratio, ratio);
           padRef.current.clear();
-          if (existingSignature.length > 0) padRef.current.fromData(existingSignature);
+          if (existingSignature.length > 0) padRef.current.fromData(existingSignature.map(group => ({
+            ...group,
+            points: group.points.map(point => ({ ...point,
+              x: point.x * wrapperRef.current!.offsetWidth / Math.max(1, oldWidth),
+              y: point.y * wrapperRef.current!.offsetHeight / Math.max(1, oldHeight),
+            })),
+          })) as unknown as ReturnType<SignatureCanvas['toData']>);
         }
       };
 
       // Slight delay to ensure DOM is fully painted
       const initialResize = window.setTimeout(handleResize, 100);
       window.addEventListener('resize', handleResize);
+      const observer = new ResizeObserver(handleResize);
+      if (wrapperRef.current) observer.observe(wrapperRef.current);
       return () => {
         window.clearTimeout(initialResize);
         window.removeEventListener('resize', handleResize);
+        observer.disconnect();
       };
     }, []);
 
@@ -87,6 +100,7 @@ export const SignaturePad = forwardRef<SignaturePadRef, SignaturePadProps>(
         >
           <SignatureCanvas
             ref={padRef}
+            clearOnResize={false}
             penColor="black"
             onBegin={onBegin}
             onEnd={onEnd}

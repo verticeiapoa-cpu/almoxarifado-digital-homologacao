@@ -25,7 +25,7 @@ function localDateTimeValue(date: Date) {
 
 export default function NewDelivery() {
   const { user, profile, activeObraId, activeObra, isAdmin, userObras } = useAuth();
-  const [date] = useState(() => localDateTimeValue(new Date()));
+  const [date, setDate] = useState(() => localDateTimeValue(new Date()));
   const [employeeId, setEmployeeId] = useState('');
   const [stockObraId, setStockObraId] = useState(activeObraId === 'ALL' ? '' : activeObraId);
   
@@ -48,10 +48,30 @@ export default function NewDelivery() {
   const [assignments, setAssignments] = useState<TemporaryAssignment[]>([]);
   
   const signatureRef = useRef<SignaturePadRef>(null);
+  const confirmedFicha = useRef<{ employee: Employee; delivery: Delivery } | null>(null);
+  const [setupError, setSetupError] = useState('');
+  const [setupLoading, setSetupLoading] = useState(false);
+  const [stockLoading, setStockLoading] = useState(false);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
+    const timer = window.setInterval(() => setDate(localDateTimeValue(new Date())), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    signatureRef.current?.clear();
+    setAcceptedTerms(false);
+  }, [employeeId, stockObraId, activeObraId, items]);
+
+  useEffect(() => {
+    let cancelled = false;
     const fetchData = async () => {
       if (!profile || !activeObraId || activeObraId === 'ALL') return;
+      setSetupLoading(true);
+      setSetupError('');
+      setEmployees([]);
+      setAssignments([]);
       try {
         const [homeSnapshot, assignmentSnapshot] = await Promise.all([
           getDocs(query(collection(db, 'employees'), where('companyId', '==', profile.companyId), where('obraId', '==', activeObraId))),
@@ -65,25 +85,35 @@ export default function NewDelivery() {
             const endsAt = item.endsAt && typeof item.endsAt === 'object' && 'toMillis' in item.endsAt ? (item.endsAt as { toMillis: () => number }).toMillis() : new Date(String(item.endsAt)).getTime();
             return item.status === 'ACTIVE' && startsAt <= now && endsAt >= now;
           });
+        if (cancelled) return;
         setAssignments(activeAssignments);
         const visitorSnapshots = await Promise.all(activeAssignments.map(item => getDoc(doc(db, 'employees', item.employeeId))));
         const combined = new Map<string, Employee>();
         homeSnapshot.docs.forEach(item => combined.set(item.id, { id: item.id, ...item.data() } as Employee));
         visitorSnapshots.filter(item => item.exists()).forEach(item => combined.set(item.id, { id: item.id, ...item.data() } as Employee));
-        setEmployees([...combined.values()]);
+        if (!cancelled) setEmployees([...combined.values()]);
       } catch (err) {
         logError('delivery-setup-load-failed', err);
+        if (!cancelled) setSetupError('Não foi possível carregar os funcionários e suas alocações. Tente novamente.');
+      } finally {
+        if (!cancelled) setSetupLoading(false);
       }
     };
     setEmployeeId('');
     fetchData();
-  }, [profile, activeObraId, isAdmin]);
+    return () => { cancelled = true; };
+  }, [profile?.companyId, activeObraId, reload]);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchStock = async () => {
       if (!profile || !stockObraId) { setStocks([]); return; }
+      setStockLoading(true);
+      setStocks([]);
+      setStockWarning('');
       try {
         const snapshot = await getDocs(query(collection(db, 'inventoryStock'), where('companyId', '==', profile.companyId), where('obraId', '==', stockObraId)));
+        if (cancelled) return;
         const loaded = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as InventoryStock));
         const canonical = loaded.filter(stock => stock.id === stockDocumentId(stock.obraId, stock.materialId));
         const byMaterial = new Map<string, InventoryStock>();
@@ -95,12 +125,16 @@ export default function NewDelivery() {
           : '');
       } catch (error) {
         logError('delivery-stock-load-failed', error);
+        if (cancelled) return;
         setStocks([]);
-        setStockWarning('Não foi possível validar o estoque desta obra. Atualize a tela antes de registrar uma entrega.');
+        setStockWarning('Não foi possível validar o estoque desta obra. Tente novamente antes de registrar uma entrega.');
+      } finally {
+        if (!cancelled) setStockLoading(false);
       }
     };
     fetchStock();
-  }, [profile?.companyId, stockObraId]);
+    return () => { cancelled = true; };
+  }, [profile?.companyId, stockObraId, reload]);
 
   useEffect(() => {
     setStockObraId(activeObraId === 'ALL' ? '' : activeObraId);
@@ -130,44 +164,17 @@ export default function NewDelivery() {
     setItems(items.filter((_, i) => i !== index));
   };
 
-  const handleItemChange = (index: number, field: keyof DeliveryItem, value: string | number) => {
-    const newItems = [...items];
-    if (field === 'ca') {
-      const stringValue = value as string;
-      newItems[index].ca = stringValue;
-      const stock = stocks.find(item => item.ca === stringValue);
-      if (stock) {
-        newItems[index].description = stock.materialDescription;
-        newItems[index].materialId = stock.materialId;
-        newItems[index].stockId = stock.id;
-      } else {
-        delete newItems[index].materialId;
-        delete newItems[index].stockId;
-      }
-    } else {
-      newItems[index][field] = value as never;
-    }
-    setItems(newItems);
-    setErrors(prev => ({...prev, items: ''}));
+  const handleItemChange = (index: number, field: 'quantity', value: '' | number) => {
+    setItems(current => current.map((item, i) => i === index ? { ...item, [field]: value } : item));
+    setErrors(prev => ({ ...prev, items: '' }));
   };
 
-  const handleMaterialSelect = (index: number, description: string) => {
-    const newItems = [...items];
-    newItems[index].description = description;
-    
-    const stock = stocks.find(item => item.materialDescription === description);
-    if (stock) {
-      newItems[index].ca = stock.ca || '';
-      newItems[index].materialId = stock.materialId;
-      newItems[index].stockId = stock.id;
-    } else {
-      newItems[index].ca = '';
-      delete newItems[index].materialId;
-      delete newItems[index].stockId;
-    }
-    
-    setItems(newItems);
-    setErrors(prev => ({...prev, items: ''}));
+  const handleMaterialSelect = (index: number, stockId: string) => {
+    const stock = stocks.find(item => item.id === stockId);
+    setItems(current => current.map((item, i) => i !== index ? item : stock
+      ? { quantity: item.quantity, ca: stock.ca || '', description: stock.materialDescription, materialId: stock.materialId, stockId: stock.id }
+      : { quantity: item.quantity, ca: '', description: '' }));
+    setErrors(prev => ({ ...prev, items: '' }));
   };
 
   const validate = () => {
@@ -209,6 +216,7 @@ export default function NewDelivery() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (currentStep !== 3) { continueStep(); return; }
     if (isSubmitting || !validate() || !user || !profile) return;
 
     const selectedEmployee = employees.find(item => item.id === employeeId);
@@ -264,6 +272,7 @@ export default function NewDelivery() {
       if (emp.companyId !== profile.companyId || serviceObra.companyId !== profile.companyId || stockObra.companyId !== profile.companyId) {
         throw new Error('Os dados selecionados não pertencem à empresa atual.');
       }
+      if (!emp.isActive) throw new Error('O funcionário foi desativado. Selecione um funcionário ativo.');
       if (!emp.name || !emp.cpf || !emp.jobTitle || !emp.obraId || !emp.obraName || typeof emp.isOutsourced !== 'boolean') {
         throw new Error('O cadastro do funcionário está incompleto. Corrija nome, CPF, função e obra de vínculo antes da entrega.');
       }
@@ -375,6 +384,12 @@ export default function NewDelivery() {
           if (!snapshot.exists()) throw new Error('Item removido do estoque. Atualize a lista de equipamentos.');
           const entry = trackedEntries[index];
           const currentStock = { id: snapshot.id, ...snapshot.data() } as InventoryStock;
+          if (currentStock.companyId !== profile.companyId || currentStock.obraId !== stockObra.id
+            || currentStock.materialId !== entry.stock.materialId
+            || currentStock.materialDescription !== entry.stock.materialDescription
+            || (currentStock.ca || '') !== (entry.stock.ca || '')) {
+            throw new Error('O cadastro do EPI mudou durante a revisão. Atualize o estoque e selecione os equipamentos novamente.');
+          }
           if (currentStock.id !== stockDocumentId(currentStock.obraId, currentStock.materialId)) {
             throw new Error(`O saldo de ${currentStock.materialDescription} precisa ser migrado pelo administrador antes da entrega.`);
           }
@@ -439,6 +454,7 @@ export default function NewDelivery() {
         });
       });
 
+      confirmedFicha.current = { employee: emp, delivery: deliveryData as unknown as Delivery };
       setGeneratedDeliveryId(deliveryId);
       setGeneratedPdfBlob(null);
       setPdfWarning('');
@@ -496,26 +512,10 @@ export default function NewDelivery() {
     setIsGeneratingPdf(true);
     setPdfWarning('');
     try {
-      const employeeSnapshot = await getDocFromServer(doc(db, 'employees', employeeId));
-      if (!employeeSnapshot.exists()) throw new Error('Funcionário não encontrado para gerar a ficha.');
-      const employee = { id: employeeSnapshot.id, ...employeeSnapshot.data() } as Employee;
-
-      let deliveries: Delivery[] = [];
-      if (isAdmin) {
-        const deliveriesSnapshot = await getDocs(query(
-          collection(db, 'deliveries'),
-          where('companyId', '==', profile.companyId),
-          where('employeeId', '==', employeeId)
-        ));
-        deliveries = deliveriesSnapshot.docs.map(item => ({ id: item.id, ...item.data() } as Delivery));
-      } else {
-        const deliverySnapshot = await getDoc(doc(db, 'deliveries', generatedDeliveryId));
-        if (deliverySnapshot.exists()) deliveries = [{ id: deliverySnapshot.id, ...deliverySnapshot.data() } as Delivery];
-      }
-
-      if (deliveries.length === 0) throw new Error('A entrega foi salva, mas a ficha ainda não ficou disponível para consulta.');
+      const ficha = confirmedFicha.current;
+      if (!ficha) throw new Error('Consulte esta entrega no Histórico para gerar a ficha.');
       const { generateEmployeeFicha, downloadPdf } = await import('../utils/pdfGenerator');
-      const blob = await generateEmployeeFicha(employee, deliveries);
+      const blob = await generateEmployeeFicha(ficha.employee, [ficha.delivery]);
       setGeneratedPdfBlob(blob);
       downloadPdf(blob, `Ficha-EPI-${generatedDeliveryId}.pdf`);
     } catch (pdfError) {
@@ -528,6 +528,8 @@ export default function NewDelivery() {
 
 
   const resetForm = () => {
+    confirmedFicha.current = null;
+    setDate(localDateTimeValue(new Date()));
     setEmployeeId('');
     setItems([{ ca: '', description: '', quantity: '' }]);
     signatureRef.current?.clear();
@@ -543,6 +545,7 @@ export default function NewDelivery() {
 
   const continueStep = () => {
     const nextErrors: Record<string, string> = {};
+    if (setupLoading || stockLoading || setupError) return;
     if (currentStep === 1) {
       if (!employeeId) nextErrors.employeeId = 'Selecione um colaborador';
       if (!stockObraId) nextErrors.stockObraId = 'Selecione o estoque de saída';
@@ -581,7 +584,7 @@ export default function NewDelivery() {
           Entrega {generatedDeliveryId} registrada e estoque atualizado.
         </p>
         {pdfWarning && <p role="status" className="p-4 text-amber-800">{pdfWarning}</p>}
-        <div className="flex gap-4">
+        <div className="flex flex-wrap justify-center gap-4">
           <button 
             type="button"
             onClick={handleDownloadPdf}
@@ -634,15 +637,16 @@ export default function NewDelivery() {
       </div>
 
       <form onSubmit={handleSubmit} className="delivery-form">
+        {setupError && <div role="alert" className="p-4 bg-red-50 text-red-800">{setupError} <button type="button" onClick={() => setReload(value => value + 1)}>Tentar novamente</button></div>}
         {errors.save && <p role="alert" className="p-4 bg-red-50 text-red-800">{errors.save}</p>}
         <div className="delivery-form-body">
           {currentStep === 1 && <section className="delivery-section">
             <div className="delivery-section-heading"><div><span>ETAPA 1</span><h3>Funcionário, obra e data</h3><p>Defina o contexto antes de selecionar os equipamentos.</p></div></div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Data e Hora</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor="delivery-date">Horário atual (gravado ao confirmar)</label>
                 <input 
-                  type="datetime-local" 
+                  id="delivery-date" type="datetime-local"
                   value={date}
                   disabled
                   className="w-full px-3 py-2.5 sm:py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-500 text-sm min-h-[44px]"
@@ -651,7 +655,7 @@ export default function NewDelivery() {
               
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block text-sm font-medium text-slate-700">
+                  <label htmlFor="delivery-employee" className="block text-sm font-medium text-slate-700">
                     Nome do Empregado
                   </label>
                   {activeObra && (
@@ -660,7 +664,7 @@ export default function NewDelivery() {
                     </span>
                   )}
                 </div>
-                <select
+                <select id="delivery-employee" disabled={setupLoading}
                   value={employeeId}
                   onChange={handleEmployeeChange}
                   className={cn(
@@ -673,7 +677,7 @@ export default function NewDelivery() {
                     <option key={emp.id} value={emp.id}>{emp.name} ({emp.jobTitle}) - {emp.obraName}</option>
                   ))}
                 </select>
-                {filteredEmployees.length === 0 && (
+                {!setupLoading && !setupError && filteredEmployees.length === 0 && (
                   <p className="mt-1 text-xs text-amber-600">
                     Nenhum funcionário cadastrado nesta obra. Selecione outra obra no topo ou cadastre na aba "Funcionários".
                   </p>
@@ -693,8 +697,8 @@ export default function NewDelivery() {
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Estoque de saída *</label>
-                <select value={stockObraId} onChange={event => { setStockObraId(event.target.value); setStocks([]); setItems([{ ca: '', description: '', quantity: '' }]); setErrors(current => ({ ...current, stockObraId: '' })); }} className={cn('field-control', errors.stockObraId && 'border-red-500')}>
+                <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor="delivery-stock">Estoque de saída *</label>
+                <select id="delivery-stock" value={stockObraId} onChange={event => { setStockObraId(event.target.value); setStocks([]); setItems([{ ca: '', description: '', quantity: '' }]); setErrors(current => ({ ...current, stockObraId: '' })); }} className={cn('field-control', errors.stockObraId && 'border-red-500')}>
                   <option value="">Selecione...</option>
                   {userObras.map(obra => <option key={obra.id} value={obra.id}>{obra.name}</option>)}
                 </select>
@@ -706,7 +710,7 @@ export default function NewDelivery() {
           </section>}
 
           {currentStep === 2 && <section className="delivery-section">
-            {stockWarning && <div role="status" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{stockWarning}</div>}
+            {stockWarning && <div role="status" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{stockWarning} <button type="button" onClick={() => setReload(value => value + 1)}>Tentar novamente</button></div>}
             <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-2">
               <div><span className="delivery-kicker">ETAPA 2</span><h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider">Equipamentos de Proteção (EPI)</h3><p className="text-xs text-slate-500 mt-1">Selecione os EPIs, confira o CA e informe a quantidade.</p></div>
               <button
@@ -735,39 +739,33 @@ export default function NewDelivery() {
                   )}
                   
                   <div className="sm:col-span-3">
-                    <label className="block text-xs font-medium text-slate-700 mb-1">C A (Opcional)</label>
+                    <label className="block text-xs font-medium text-slate-700 mb-1" htmlFor={`item-ca-${index}`}>CA do equipamento</label>
                     <input 
                       type="text" 
                       value={item.ca}
-                      onChange={(e) => handleItemChange(index, 'ca', e.target.value)}
+                      id={`item-ca-${index}`} readOnly
                       placeholder="Ex: 36982"
                       className="w-full px-3 py-2.5 sm:py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2bb2c8] text-sm min-h-[44px]"
                     />
                   </div>
 
                   <div className="sm:col-span-6">
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Equipamento de Proteção *</label>
-                    <input
-                      list={`materials-${index}`}
-                      value={item.description}
+                    <label className="block text-xs font-medium text-slate-700 mb-1" htmlFor={`item-material-${index}`}>Equipamento de Proteção *</label>
+                    <select id={`item-material-${index}`} value={item.stockId || ''}
+                      disabled={stockLoading}
                       onChange={(e) => handleMaterialSelect(index, e.target.value)}
-                      placeholder="Selecione ou digite um EPI avulso"
-                      className={cn(
-                        "w-full px-3 py-2.5 sm:py-2 bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2bb2c8] text-sm min-h-[44px]",
-                        !item.description && errors.items ? "border-red-500" : "border-slate-300"
-                      )}
-                    />
-                    <datalist id={`materials-${index}`}>
-                      {stocks.map(stock => (
-                        <option key={stock.id} value={stock.materialDescription} label={`${stock.quantity} ${stock.unit} disponíveis${stock.ca ? ` · C.A: ${stock.ca}` : ''}`} />
-                      ))}
-                    </datalist>
+                      className="field-control">
+                      <option value="">{stockLoading ? 'Carregando estoque...' : 'Selecione um EPI do estoque'}</option>
+                      {stocks.map(stock => <option key={stock.id} value={stock.id}>
+                        {stock.materialDescription} · CA: {stock.ca || 'sem CA'} · {stock.quantity} {stock.unit} · Código: {stock.materialId}
+                      </option>)}
+                    </select>
                   </div>
 
                   <div className="sm:col-span-3">
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Quant.</label>
+                    <label className="block text-xs font-medium text-slate-700 mb-1" htmlFor={`item-quantity-${index}`}>Quant.</label>
                     <input 
-                      type="number" 
+                      id={`item-quantity-${index}`} type="number"
                       min="1"
                       max="9999"
                       step="1"
@@ -786,13 +784,19 @@ export default function NewDelivery() {
             </div>
           </section>}
 
-          {currentStep === 3 && <section className="delivery-section">
+          <section hidden={currentStep !== 3} className="delivery-section">
             <div className="delivery-section-heading"><div><span>ETAPA 3</span><h3>Revisão, assinatura e confirmação</h3><p>Revise os dados da entrega antes de registrar a ficha.</p></div></div>
             <div className="delivery-review">
               <div><span>Funcionário</span><strong>{employees.find(item => item.id === employeeId)?.name || 'Não selecionado'}</strong></div>
               <div><span>Obra do atendimento</span><strong>{activeObra.name}</strong></div>
               <div><span>Estoque de saída</span><strong>{userObras.find(item => item.id === stockObraId)?.name || 'Não selecionado'}</strong></div>
               <div><span>Itens selecionados</span><strong>{items.length} item(ns)</strong></div>
+            </div>
+            <div className="delivery-review-items overflow-x-auto">
+              <table><caption className="text-left font-semibold">EPIs a receber</caption>
+                <thead><tr><th>Equipamento</th><th>CA</th><th>Quantidade</th></tr></thead>
+                <tbody>{items.map((item, index) => <tr key={index}><td>{item.description}</td><td>{item.ca || 'Sem CA'}</td><td>{item.quantity} {stocks.find(stock => stock.id === item.stockId)?.unit || 'UN'}</td></tr>)}</tbody>
+              </table>
             </div>
             <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2 flex items-center justify-between">
               <span>Assinatura do Funcionário</span>
@@ -820,13 +824,13 @@ export default function NewDelivery() {
               <span>Declaro que recebi os EPIs relacionados, fui orientado quanto ao uso, guarda e conservação e confirmo a assinatura feita nesta tela.</span>
             </label>
             {errors.consent && <p className="mt-1 text-sm text-red-500">{errors.consent}</p>}
-          </section>}
+          </section>
 
         </div>
 
         <div className="delivery-actions">
           {currentStep > 1 && <button type="button" onClick={() => setCurrentStep(step => step - 1)} className="secondary-action"><ArrowLeft className="w-4 h-4" />Voltar</button>}
-          {currentStep < 3 ? <button type="button" onClick={continueStep} className="primary-action">Continuar <ArrowRight className="w-4 h-4" /></button> : <button type="submit" disabled={isSubmitting} className="primary-action">
+          {currentStep < 3 ? <button type="button" disabled={setupLoading || stockLoading || !!setupError} onClick={continueStep} className="primary-action">Continuar <ArrowRight className="w-4 h-4" /></button> : <button type="submit" disabled={isSubmitting} className="primary-action">
             {isSubmitting ? <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Salvando Ficha...</> : <><Save className="w-5 h-5" />Salvar Ficha de EPI</>}
           </button>}
         </div>

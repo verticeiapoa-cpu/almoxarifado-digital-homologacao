@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { db } from '../lib/firebase';
 import { collection, query, getDocs, doc, setDoc, updateDoc, where } from 'firebase/firestore';
 import { Employee, Obra } from '../types';
@@ -7,12 +7,18 @@ import { cn } from '../components/Layout';
 import { useAuth } from '../lib/AuthContext';
 import { logError } from '../lib/logger';
 import TemporaryAssignments from './TemporaryAssignments';
+import { cpfDigits, validateEmployeeDraft } from '../lib/employeeForm';
 
 export default function Employees() {
   const { activeObraId, activeObra, profile, userObras, isAdmin } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const obras: Obra[] = userObras;
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [savedMessage, setSavedMessage] = useState('');
+  const fetchSequence = useRef(0);
+  const saving = useRef(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -28,16 +34,22 @@ export default function Employees() {
 
   const fetchData = async () => {
     if (!profile || (!isAdmin && !activeObraId)) return;
+    const sequence = ++fetchSequence.current;
+    setLoading(true);
+    setLoadError('');
+    setEmployees([]);
     try {
       const constraints = [where('companyId', '==', profile.companyId)];
       if (activeObraId !== 'ALL') constraints.push(where('obraId', '==', activeObraId));
       const empQ = query(collection(db, 'employees'), ...constraints);
       const empSnap = await getDocs(empQ);
+      if (sequence !== fetchSequence.current) return;
       setEmployees(empSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee)));
     } catch (err) {
       logError('employees-load-failed', err);
+      if (sequence === fetchSequence.current) setLoadError('Não foi possível carregar os funcionários. Verifique a conexão e tente novamente.');
     } finally {
-      setLoading(false);
+      if (sequence === fetchSequence.current) setLoading(false);
     }
   };
 
@@ -47,6 +59,7 @@ export default function Employees() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
+    setFormErrors(current => ({ ...current, [name]: '', save: '' }));
     
     if (type === 'checkbox') {
       const checked = (e.target as HTMLInputElement).checked;
@@ -60,6 +73,16 @@ export default function Employees() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving.current || !profile) return;
+    const { errors, data } = validateEmployeeDraft(formData, profile.companyId);
+    if (!obras.some(obra => obra.id === data.obraId)) errors.obraId = 'Selecione uma obra disponível para sua conta.';
+    if (employees.some(employee => employee.id !== editingId && cpfDigits(employee.cpf) === cpfDigits(data.cpf))) {
+      errors.cpf = 'Este CPF já está cadastrado na lista de funcionários desta obra. Edite ou reative o cadastro existente.';
+    }
+    setFormErrors(errors);
+    if (Object.keys(errors).length) return;
+    saving.current = true;
+    setSavedMessage('');
     setIsSubmitting(true);
     try {
       const selectedObra = obras.find(o => o.id === formData.obraId);
@@ -67,9 +90,10 @@ export default function Employees() {
       const docRef = editingId ? doc(db, 'employees', editingId) : doc(collection(db, 'employees'));
       const employeeData = {
         ...formData,
+        ...data,
         obraName: selectedObra ? selectedObra.name : '',
         obraCno: selectedObra?.cno || '',
-        companyId: profile?.companyId || 'wselent-default',
+        companyId: profile.companyId,
         id: docRef.id,
         updatedAt: new Date().toISOString(),
       };
@@ -83,17 +107,24 @@ export default function Employees() {
         });
       }
       
-      await fetchData();
       resetForm();
+      setSavedMessage('Funcionário salvo com sucesso.');
+      await fetchData();
     } catch (err) {
       logError('employee-save-failed', err);
-      alert('Erro ao salvar funcionário.');
+      const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : '';
+      setFormErrors({ save: code === 'permission-denied'
+        ? 'Seu acesso não permite salvar esse cadastro. Confira a obra e as permissões com o administrador.'
+        : 'Não foi possível confirmar o salvamento. Os dados continuam no formulário; confira a conexão antes de tentar novamente.' });
     } finally {
       setIsSubmitting(false);
+      saving.current = false;
     }
   };
 
   const openForm = () => {
+    setFormErrors({});
+    setSavedMessage('');
     setIsFormOpen(true);
     window.history.pushState(
       { ...(window.history.state || {}), wselentForm: 'employees' },
@@ -149,6 +180,7 @@ export default function Employees() {
   };
 
   const resetForm = () => {
+    setFormErrors({});
     setFormData({
       name: '',
       cpf: '',
@@ -189,32 +221,39 @@ export default function Employees() {
         )}
       </div>
 
+      {savedMessage && <p role="status" className="p-3 rounded-lg bg-emerald-50 text-emerald-800">{savedMessage}</p>}
+      {loadError && <div role="alert" className="p-4 rounded-lg bg-red-50 text-red-800">{loadError}<button type="button" onClick={fetchData} className="secondary-action ml-2">Tentar novamente</button></div>}
       {isFormOpen && (
         <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           <h3 className="text-lg font-medium text-slate-900 mb-4">
             {editingId ? 'Editar Funcionário' : 'Cadastrar Funcionário'}
           </h3>
+          {formErrors.save && <p role="alert" className="mb-4 text-sm text-red-700">{formErrors.save}</p>}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-slate-700 mb-1">Nome Completo *</label>
-              <input required name="name" value={formData.name} onChange={handleInputChange} className="w-full px-3 py-2.5 sm:py-2 min-h-[44px] bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2bb2c8]" />
+              <label htmlFor="employee-name" className="block text-sm font-medium text-slate-700 mb-1">Nome Completo *</label>
+              <input id="employee-name" required maxLength={100} aria-invalid={!!formErrors.name} aria-describedby={formErrors.name ? 'employee-name-error' : undefined} name="name" value={formData.name} onChange={handleInputChange} className="w-full px-3 py-2.5 sm:py-2 min-h-[44px] bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2bb2c8]" />
+              {formErrors.name && <p id="employee-name-error" className="mt-1 text-sm text-red-700">{formErrors.name}</p>}
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">CPF *</label>
-              <input required name="cpf" value={formData.cpf} onChange={handleInputChange} className="w-full px-3 py-2.5 sm:py-2 min-h-[44px] bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2bb2c8]" />
+              <label htmlFor="employee-cpf" className="block text-sm font-medium text-slate-700 mb-1">CPF *</label>
+              <input id="employee-cpf" required maxLength={14} inputMode="numeric" autoComplete="off" aria-invalid={!!formErrors.cpf} aria-describedby={formErrors.cpf ? 'employee-cpf-error' : undefined} name="cpf" value={formData.cpf} onChange={handleInputChange} className="w-full px-3 py-2.5 sm:py-2 min-h-[44px] bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2bb2c8]" />
+              {formErrors.cpf && <p id="employee-cpf-error" className="mt-1 text-sm text-red-700">{formErrors.cpf}</p>}
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Cargo *</label>
-              <input required name="jobTitle" value={formData.jobTitle} onChange={handleInputChange} className="w-full px-3 py-2.5 sm:py-2 min-h-[44px] bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2bb2c8]" />
+              <label htmlFor="employee-job" className="block text-sm font-medium text-slate-700 mb-1">Cargo *</label>
+              <input id="employee-job" required maxLength={100} aria-invalid={!!formErrors.jobTitle} name="jobTitle" value={formData.jobTitle} onChange={handleInputChange} className="w-full px-3 py-2.5 sm:py-2 min-h-[44px] bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2bb2c8]" />
+              {formErrors.jobTitle && <p className="mt-1 text-sm text-red-700">{formErrors.jobTitle}</p>}
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Obra de vínculo / CNO *</label>
-              <select required name="obraId" value={formData.obraId} onChange={handleInputChange} className="w-full px-3 py-2.5 sm:py-2 min-h-[44px] bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2bb2c8]">
+              <label htmlFor="employee-obra" className="block text-sm font-medium text-slate-700 mb-1">Obra de vínculo / CNO *</label>
+              <select id="employee-obra" required aria-invalid={!!formErrors.obraId} name="obraId" value={formData.obraId} onChange={handleInputChange} className="w-full px-3 py-2.5 sm:py-2 min-h-[44px] bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2bb2c8]">
                 <option value="">Selecione a obra...</option>
                 {obras.map(obra => (
                   <option key={obra.id} value={obra.id}>{obra.name}</option>
                 ))}
               </select>
+              {formErrors.obraId && <p className="mt-1 text-sm text-red-700">{formErrors.obraId}</p>}
             </div>
             <div className="flex items-center mt-6">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -238,7 +277,7 @@ export default function Employees() {
         <div className="flex justify-center items-center py-12">
           <div className="w-8 h-8 border-4 border-slate-200 border-t-[#2bb2c8] rounded-full animate-spin" />
         </div>
-      ) : displayedEmployees.length === 0 ? (
+      ) : loadError ? null : displayedEmployees.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
           <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <p className="text-slate-600 font-medium">Nenhum funcionário encontrado.</p>

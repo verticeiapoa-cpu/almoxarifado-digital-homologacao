@@ -23,6 +23,6 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "include": ["src", "worker", "build", "vite.config.ts"],
+  "include": ["src", "worker", "server", "api", "build", "vite.config.ts"],
   "exclude": ["dist", "node_modules"]
 }
