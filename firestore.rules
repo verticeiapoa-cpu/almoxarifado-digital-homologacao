@@ -70,20 +70,13 @@ service cloud.firestore {
     }
 
     function validItems(items) {
-      return items is list && items.size() > 0 && items.size() <= 25
+      // The UI caps a delivery at five EPIs. Keeping the rule at the same
+      // limit avoids Firestore's 1000-expression evaluation ceiling while
+      // still validating every item accepted by the application.
+      return items is list && items.size() > 0 && items.size() <= 5
         && validItemAt(items, 0) && validItemAt(items, 1)
         && validItemAt(items, 2) && validItemAt(items, 3)
-        && validItemAt(items, 4) && validItemAt(items, 5)
-        && validItemAt(items, 6) && validItemAt(items, 7)
-        && validItemAt(items, 8) && validItemAt(items, 9)
-        && validItemAt(items, 10) && validItemAt(items, 11)
-        && validItemAt(items, 12) && validItemAt(items, 13)
-        && validItemAt(items, 14) && validItemAt(items, 15)
-        && validItemAt(items, 16) && validItemAt(items, 17)
-        && validItemAt(items, 18) && validItemAt(items, 19)
-        && validItemAt(items, 20) && validItemAt(items, 21)
-        && validItemAt(items, 22) && validItemAt(items, 23)
-        && validItemAt(items, 24);
+        && validItemAt(items, 4);
     }
 
     function validObra(data, obraId) {
