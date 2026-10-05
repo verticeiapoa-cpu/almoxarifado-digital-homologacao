@@ -33,16 +33,52 @@ jobs:
           node <<'NODE'
           const fs = require('fs');
           const path = require('path');
-          const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '';
-          if (!raw) {
+
+          const original = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '';
+          if (!original) {
             console.error('Firebase service account secret is empty.');
             process.exit(1);
           }
 
-          const candidates = [raw];
+          const cleanBom = s => String(s).replace(/^\uFEFF/, '').trim();
+          const candidates = [];
+          const push = v => {
+            if (typeof v !== 'string') return;
+            v = cleanBom(v);
+            if (v && !candidates.includes(v)) candidates.push(v);
+          };
+
+          push(original);
+
+          // JSON string containing a JSON object.
           try {
-            candidates.push(Buffer.from(raw.replace(/\s+/g, ''), 'base64').toString('utf8'));
+            const outer = JSON.parse(cleanBom(original));
+            if (typeof outer === 'string') push(outer);
           } catch {}
+
+          // Common copy/paste wrapping.
+          const t = cleanBom(original);
+          if ((t.startsWith("'") && t.endsWith("'")) || (t.startsWith('"') && t.endsWith('"'))) {
+            push(t.slice(1, -1));
+          }
+
+          // Literal escaped newlines/quotes copied from another UI.
+          push(t.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\"/g, '"'));
+
+          // Base64 and Base64URL.
+          for (const base of [...candidates]) {
+            for (const normalized of [
+              base.replace(/\s+/g, ''),
+              base.replace(/-/g, '+').replace(/_/g, '/').replace(/\s+/g, '')
+            ]) {
+              try { push(Buffer.from(normalized, 'base64').toString('utf8')); } catch {}
+            }
+          }
+
+          // URL encoded text.
+          for (const base of [...candidates]) {
+            try { push(decodeURIComponent(base)); } catch {}
+          }
 
           let parsed = null;
           for (const candidate of candidates) {
@@ -56,7 +92,17 @@ jobs:
           }
 
           if (!parsed) {
-            console.error('FIREBASE_SERVICE_ACCOUNT_JSON is neither a valid service-account JSON nor Base64-encoded JSON.');
+            const bytes = Buffer.byteLength(original, 'utf8');
+            const trimmed = cleanBom(original);
+            const looksJson = trimmed.startsWith('{') && trimmed.endsWith('}');
+            const hasServiceAccountMarker = trimmed.includes('"type"') || trimmed.includes('service_account');
+            const looksPem = trimmed.includes('BEGIN PRIVATE KEY');
+            console.error(`Credential secret could not be normalized. bytes=${bytes}, looksJson=${looksJson}, hasServiceAccountMarker=${hasServiceAccountMarker}, looksPem=${looksPem}`);
+            process.exit(1);
+          }
+
+          if (parsed.project_id && parsed.project_id !== 'gen-lang-client-0038131539') {
+            console.error('Credential belongs to a different Google Cloud project.');
             process.exit(1);
           }
 
@@ -64,7 +110,7 @@ jobs:
           fs.writeFileSync(target, JSON.stringify(parsed), { mode: 0o600 });
           fs.appendFileSync(process.env.GITHUB_ENV, `GOOGLE_APPLICATION_CREDENTIALS=${target}\n`);
           fs.appendFileSync(process.env.GITHUB_ENV, `GOOGLE_CLOUD_PROJECT=${parsed.project_id || 'gen-lang-client-0038131539'}\n`);
-          console.log('Service account normalized for project:', parsed.project_id || 'unknown');
+          console.log('Service account credential normalized successfully.');
           NODE
 
       - name: Deploy Firestore rules
