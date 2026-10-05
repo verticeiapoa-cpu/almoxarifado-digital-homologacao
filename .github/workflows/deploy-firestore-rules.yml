@@ -114,8 +114,7 @@ jobs:
                   name: 'firestore.rules',
                   content: rules
                 }]
-              },
-              attachment_point: `firestore.googleapis.com/databases/${database}`
+              }
             })
           });
 
