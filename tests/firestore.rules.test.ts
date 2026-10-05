@@ -193,6 +193,20 @@ describe('histórico de entregas', () => {
     await assertFails(deleteDoc(ref));
   });
 
+  it('limita cada entrega a no máximo cinco EPIs', async () => {
+    const db = env.authenticatedContext('storekeeper', { email: 'almoxarife@example.com' }).firestore();
+    const sixItems = Array.from({ length: 6 }, (_, index) => ({
+      description: `EPI ${index + 1}`,
+      ca: String(100 + index),
+      quantity: 1,
+    }));
+    await assertFails(setDoc(doc(db, 'deliveries/too-many-items'), {
+      ...delivery('storekeeper', 'almoxarife@example.com'),
+      id: 'too-many-items',
+      items: sixItems,
+    }));
+  });
+
   it('rejeita entrega sem assinatura ou em obra não autorizada', async () => {
     const db = env.authenticatedContext('storekeeper', { email: 'almoxarife@example.com' }).firestore();
     await assertFails(setDoc(doc(db, 'deliveries/no-signature'), {
