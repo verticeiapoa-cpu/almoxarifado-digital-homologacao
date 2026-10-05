@@ -11,6 +11,7 @@ on:
       - 'worker/**'
       - 'vercel.json'
       - 'vitest.unit.config.ts'
+      - 'tsconfig.api.json'
       - 'tests/**'
       - 'package.json'
       - 'package-lock.json'
@@ -25,6 +26,7 @@ on:
       - 'worker/**'
       - 'vercel.json'
       - 'vitest.unit.config.ts'
+      - 'tsconfig.api.json'
       - 'tests/**'
       - 'package.json'
       - 'package-lock.json'
@@ -47,6 +49,8 @@ jobs:
         run: npm run lint
       - name: Unit regression tests
         run: npm run test:unit
+      - name: Compiled API runtime
+        run: npm run test:api-runtime
       - name: Production build
         run: npm run build
       - name: Production dependency audit
