@@ -48,7 +48,7 @@ const delivery = (uid: string, email: string, obraId = 'obra-a', companyId = COM
   employeeJobTitle: 'SERVENTE',
   employeeObraName: 'OBRA A',
   employeeIsOutsourced: false,
-  items: [{ description: 'CAPACETE', ca: '123', quantity: 1 }],
+  items: [{ description: 'CAPACETE', ca: '123', quantity: 1, materialId: 'material-a', stockId: `${obraId}__material-a` }],
   status: 'COMPLETED',
   signatureUrl: `data:image/png;base64,${'a'.repeat(150)}`,
   signatureHash: 'a'.repeat(64),
@@ -199,6 +199,8 @@ describe('histórico de entregas', () => {
       description: `EPI ${index + 1}`,
       ca: String(100 + index),
       quantity: 1,
+      materialId: `material-${index + 1}`,
+      stockId: `obra-a__material-${index + 1}`,
     }));
     await assertFails(setDoc(doc(db, 'deliveries/too-many-items'), {
       ...delivery('storekeeper', 'almoxarife@example.com'),
