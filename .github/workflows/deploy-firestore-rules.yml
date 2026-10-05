@@ -16,28 +16,56 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v3
-        with:
-          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-          project_id: gen-lang-client-0038131539
-          create_credentials_file: true
-          export_environment_variables: true
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
 
-      - name: Verify authenticated project
+      - name: Normalize Firebase credentials
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${GOOGLE_APPLICATION_CREDENTIALS:-}"
-          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS,'utf8'));if(!p.client_email||!p.private_key)process.exit(1);console.log('Service account credentials loaded for project:', p.project_id || 'unknown');"
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '';
+          if (!raw) {
+            console.error('Firebase service account secret is empty.');
+            process.exit(1);
+          }
+
+          const candidates = [raw];
+          try {
+            candidates.push(Buffer.from(raw.replace(/\s+/g, ''), 'base64').toString('utf8'));
+          } catch {}
+
+          let parsed = null;
+          for (const candidate of candidates) {
+            try {
+              const value = JSON.parse(candidate);
+              if (value && value.type === 'service_account' && value.client_email && value.private_key) {
+                parsed = value;
+                break;
+              }
+            } catch {}
+          }
+
+          if (!parsed) {
+            console.error('FIREBASE_SERVICE_ACCOUNT_JSON is neither a valid service-account JSON nor Base64-encoded JSON.');
+            process.exit(1);
+          }
+
+          const target = path.join(process.env.RUNNER_TEMP, 'firebase-service-account.json');
+          fs.writeFileSync(target, JSON.stringify(parsed), { mode: 0o600 });
+          fs.appendFileSync(process.env.GITHUB_ENV, `GOOGLE_APPLICATION_CREDENTIALS=${target}\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `GOOGLE_CLOUD_PROJECT=${parsed.project_id || 'gen-lang-client-0038131539'}\n`);
+          console.log('Service account normalized for project:', parsed.project_id || 'unknown');
+          NODE
 
       - name: Deploy Firestore rules
         shell: bash
