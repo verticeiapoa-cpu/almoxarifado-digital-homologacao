@@ -16,45 +16,34 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-      FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          project_id: gen-lang-client-0038131539
+          create_credentials_file: true
+          export_environment_variables: true
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
 
-      - name: Prepare Firebase authentication
+      - name: Verify authenticated project
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ]; then
-            printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/firebase-service-account.json"
-            echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-service-account.json" >> "$GITHUB_ENV"
-            echo "auth_mode=service-account" >> "$GITHUB_ENV"
-          elif [ -n "${FIREBASE_TOKEN:-}" ]; then
-            echo "auth_mode=firebase-token" >> "$GITHUB_ENV"
-          else
-            echo "::error::Firebase deployment credential is not configured. Add FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_TOKEN as a repository Actions secret."
-            exit 1
-          fi
+          test -n "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS,'utf8'));if(!p.client_email||!p.private_key)process.exit(1);console.log('Service account credentials loaded for project:', p.project_id || 'unknown');"
 
       - name: Deploy Firestore rules
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$auth_mode" = "firebase-token" ]; then
-            npx --yes firebase-tools@15.29.0 deploy \
-              --project gen-lang-client-0038131539 \
-              --only firestore:ai-studio-docbrief-694b79f8-8d07-4aec-ab6b-3d02339ff834 \
-              --non-interactive \
-              --token "$FIREBASE_TOKEN"
-          else
-            npx --yes firebase-tools@15.29.0 deploy \
-              --project gen-lang-client-0038131539 \
-              --only firestore:ai-studio-docbrief-694b79f8-8d07-4aec-ab6b-3d02339ff834 \
-              --non-interactive
-          fi
+          npx --yes firebase-tools@15.22.1 deploy \
+            --project gen-lang-client-0038131539 \
+            --only firestore:ai-studio-docbrief-694b79f8-8d07-4aec-ab6b-3d02339ff834 \
+            --non-interactive
