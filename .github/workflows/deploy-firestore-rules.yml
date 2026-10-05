@@ -16,108 +16,113 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          project_id: gen-lang-client-0038131539
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
 
-      - name: Normalize Firebase credentials
+      - name: Deploy Firestore rules via Firebase Rules API
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          PROJECT_ID: gen-lang-client-0038131539
+          DATABASE_ID: ai-studio-docbrief-694b79f8-8d07-4aec-ab6b-3d02339ff834
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
           const fs = require('fs');
-          const path = require('path');
 
-          const original = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '';
-          if (!original) {
-            console.error('Firebase service account secret is empty.');
-            process.exit(1);
+          const token = process.env.ACCESS_TOKEN;
+          const project = process.env.PROJECT_ID;
+          const database = process.env.DATABASE_ID;
+          if (!token) throw new Error('Google access token was not generated.');
+
+          const rules = fs.readFileSync('firestore.rules', 'utf8');
+          const base = 'https://firebaserules.googleapis.com/v1';
+          const auth = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+          async function request(url, options = {}) {
+            const res = await fetch(url, { ...options, headers: { ...auth, ...(options.headers || {}) } });
+            const text = await res.text();
+            let body = null;
+            try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
+            if (!res.ok) {
+              const safe = body?.error?.message || body?.raw || `HTTP ${res.status}`;
+              throw new Error(`${res.status} ${safe}`);
+            }
+            return body;
           }
 
-          const cleanBom = s => String(s).replace(/^\uFEFF/, '').trim();
-          const candidates = [];
-          const push = v => {
-            if (typeof v !== 'string') return;
-            v = cleanBom(v);
-            if (v && !candidates.includes(v)) candidates.push(v);
-          };
+          const ruleset = await request(`${base}/projects/${project}/rulesets`, {
+            method: 'POST',
+            body: JSON.stringify({
+              source: {
+                files: [{
+                  name: 'firestore.rules',
+                  content: rules
+                }]
+              },
+              attachment_point: `firestore.googleapis.com/databases/${database}`
+            })
+          });
 
-          push(original);
+          if (!ruleset?.name) throw new Error('Rules API did not return a ruleset name.');
+          console.log('Ruleset created:', ruleset.name);
 
-          // JSON string containing a JSON object.
-          try {
-            const outer = JSON.parse(cleanBom(original));
-            if (typeof outer === 'string') push(outer);
-          } catch {}
+          const releaseName = `projects/${project}/releases/cloud.firestore/${database}`;
+          const releaseUrl = `${base}/${releaseName}`;
 
-          // Common copy/paste wrapping.
-          const t = cleanBom(original);
-          if ((t.startsWith("'") && t.endsWith("'")) || (t.startsWith('"') && t.endsWith('"'))) {
-            push(t.slice(1, -1));
-          }
-
-          // Literal escaped newlines/quotes copied from another UI.
-          push(t.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\"/g, '"'));
-
-          // Base64 and Base64URL.
-          for (const base of [...candidates]) {
-            for (const normalized of [
-              base.replace(/\s+/g, ''),
-              base.replace(/-/g, '+').replace(/_/g, '/').replace(/\s+/g, '')
-            ]) {
-              try { push(Buffer.from(normalized, 'base64').toString('utf8')); } catch {}
+          let exists = false;
+          {
+            const res = await fetch(releaseUrl, { headers: auth });
+            if (res.status === 200) exists = true;
+            else if (res.status !== 404) {
+              const text = await res.text();
+              let msg = text;
+              try { msg = JSON.parse(text)?.error?.message || text; } catch {}
+              throw new Error(`Failed to inspect existing release: ${res.status} ${msg}`);
             }
           }
 
-          // URL encoded text.
-          for (const base of [...candidates]) {
-            try { push(decodeURIComponent(base)); } catch {}
+          if (exists) {
+            await request(releaseUrl, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                release: {
+                  name: releaseName,
+                  rulesetName: ruleset.name
+                },
+                updateMask: 'rulesetName'
+              })
+            });
+            console.log('Existing Firestore release updated.');
+          } else {
+            await request(`${base}/projects/${project}/releases`, {
+              method: 'POST',
+              body: JSON.stringify({
+                name: releaseName,
+                rulesetName: ruleset.name
+              })
+            });
+            console.log('Firestore release created.');
           }
 
-          let parsed = null;
-          for (const candidate of candidates) {
-            try {
-              const value = JSON.parse(candidate);
-              if (value && value.type === 'service_account' && value.client_email && value.private_key) {
-                parsed = value;
-                break;
-              }
-            } catch {}
+          const verified = await request(releaseUrl);
+          if (verified?.rulesetName !== ruleset.name) {
+            throw new Error(`Verification failed: release points to ${verified?.rulesetName || 'unknown'}`);
           }
 
-          if (!parsed) {
-            const bytes = Buffer.byteLength(original, 'utf8');
-            const trimmed = cleanBom(original);
-            const looksJson = trimmed.startsWith('{') && trimmed.endsWith('}');
-            const hasServiceAccountMarker = trimmed.includes('"type"') || trimmed.includes('service_account');
-            const looksPem = trimmed.includes('BEGIN PRIVATE KEY');
-            console.error(`Credential secret could not be normalized. bytes=${bytes}, looksJson=${looksJson}, hasServiceAccountMarker=${hasServiceAccountMarker}, looksPem=${looksPem}`);
-            process.exit(1);
-          }
-
-          if (parsed.project_id && parsed.project_id !== 'gen-lang-client-0038131539') {
-            console.error('Credential belongs to a different Google Cloud project.');
-            process.exit(1);
-          }
-
-          const target = path.join(process.env.RUNNER_TEMP, 'firebase-service-account.json');
-          fs.writeFileSync(target, JSON.stringify(parsed), { mode: 0o600 });
-          fs.appendFileSync(process.env.GITHUB_ENV, `GOOGLE_APPLICATION_CREDENTIALS=${target}\n`);
-          fs.appendFileSync(process.env.GITHUB_ENV, `GOOGLE_CLOUD_PROJECT=${parsed.project_id || 'gen-lang-client-0038131539'}\n`);
-          console.log('Service account credential normalized successfully.');
+          console.log('Firestore rules deployment verified for database:', database);
+          console.log('Active ruleset:', verified.rulesetName);
           NODE
-
-      - name: Deploy Firestore rules
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx --yes firebase-tools@15.22.1 deploy \
-            --project gen-lang-client-0038131539 \
-            --only firestore:ai-studio-docbrief-694b79f8-8d07-4aec-ab6b-3d02339ff834 \
-            --non-interactive
