@@ -120,6 +120,28 @@ export interface StockMovement {
   createdBy: string;
 }
 
+export interface StockReturn {
+  id: string;
+  companyId: string;
+  obraId: string;
+  obraName: string;
+  materialId: string;
+  materialDescription: string;
+  ca: string;
+  quantity: number;
+  unit: string;
+  condition: 'GOOD' | 'DAMAGED' | 'UNSAFE';
+  destination: 'AVAILABLE' | 'QUARANTINE' | 'DISCARDED';
+  reason: string;
+  employeeId?: string;
+  employeeName?: string;
+  stockId: string;
+  balanceBefore: number;
+  balanceAfter: number;
+  createdAt: string;
+  createdBy: string;
+}
+
 export interface StockAlertSettings {
   id: string;
   companyId: string;
