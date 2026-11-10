@@ -472,6 +472,65 @@ describe('devoluções de estoque — etapa 2', () => {
   });
 });
 
+
+describe('inventário físico — etapa 2', () => {
+  it('permite contagem e ajuste de saldo em transação atômica para administrador', async () => {
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    const stockRef = doc(db, 'inventoryStock/obra-a__material-a');
+    await assertSucceeds(runTransaction(db, async transaction => {
+      const snapshot = await transaction.get(stockRef);
+      const before = snapshot.data()!.quantity;
+      const counted = before - 2;
+      transaction.update(stockRef, { quantity: counted, updatedAt: '2026-11-10T12:00:00.000Z', lowStockAlertSent: false });
+      transaction.set(doc(db, 'inventoryCounts/count-adjustment-a'), {
+        id: 'count-adjustment-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+        stockId: 'obra-a__material-a', materialId: 'material-a', materialDescription: 'CAPACETE',
+        ca: '123', unit: 'UN', systemQuantity: before, countedQuantity: counted,
+        difference: -2, reason: 'Conferência física mensal', createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+      transaction.set(doc(db, 'stockMovements/count-adjustment-movement-a'), {
+        id: 'count-adjustment-movement-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+        materialId: 'material-a', materialDescription: 'CAPACETE', type: 'ADJUSTMENT',
+        quantity: -2, balanceBefore: before, balanceAfter: counted,
+        notes: 'Ajuste por inventário físico', createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+    }));
+  });
+
+  it('permite registrar contagem sem divergência sem movimento', async () => {
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    const stockRef = doc(db, 'inventoryStock/obra-a__material-a');
+    await assertSucceeds(runTransaction(db, async transaction => {
+      const snapshot = await transaction.get(stockRef);
+      const quantity = snapshot.data()!.quantity;
+      transaction.set(doc(db, 'inventoryCounts/count-no-difference-a'), {
+        id: 'count-no-difference-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+        stockId: 'obra-a__material-a', materialId: 'material-a', materialDescription: 'CAPACETE',
+        ca: '123', unit: 'UN', systemQuantity: quantity, countedQuantity: quantity,
+        difference: 0, reason: 'Conferência sem divergência', createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+    }));
+  });
+
+  it('bloqueia inventário por almoxarife e impede alteração ou exclusão da contagem', async () => {
+    const storekeeperDb = env.authenticatedContext('storekeeper', { email: 'almoxarife@example.com' }).firestore();
+    await assertFails(setDoc(doc(storekeeperDb, 'inventoryCounts/count-forbidden-a'), {
+      id: 'count-forbidden-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+      stockId: 'obra-a__material-a', materialId: 'material-a', materialDescription: 'CAPACETE',
+      ca: '123', unit: 'UN', systemQuantity: 10, countedQuantity: 9, difference: -1,
+      reason: 'Contagem não autorizada', createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'storekeeper',
+    }));
+    await env.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'inventoryCounts/immutable-count-a'), {
+        id: 'immutable-count-a', companyId: COMPANY, obraId: 'obra-a', createdBy: 'admin',
+      });
+    });
+    const adminDb = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    await assertFails(updateDoc(doc(adminDb, 'inventoryCounts/immutable-count-a'), { countedQuantity: 999 }));
+    await assertFails(deleteDoc(doc(adminDb, 'inventoryCounts/immutable-count-a')));
+  });
+});
+
 describe('histórico de entregas', () => {
   it('permite entrega válida e impede alteração ou exclusão posterior', async () => {
     const db = env.authenticatedContext('storekeeper', { email: 'almoxarife@example.com' }).firestore();
