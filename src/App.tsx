@@ -18,6 +18,8 @@ const Materials = lazy(() => import('./pages/Materials'));
 const Obras = lazy(() => import('./pages/Obras'));
 const UsersPage = lazy(() => import('./pages/Users'));
 const AlertSettings = lazy(() => import('./pages/AlertSettings'));
+const Movements = lazy(() => import('./pages/Movements'));
+const Reports = lazy(() => import('./pages/Reports'));
 const TemporaryAssignments = lazy(() => import('./pages/TemporaryAssignments'));
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
@@ -79,6 +81,8 @@ export default function App() {
               <Route path="history" element={<History />} />
               <Route path="employees" element={<Employees />} />
               <Route path="materials" element={<Materials />} />
+              <Route path="movements" element={<Movements />} />
+              <Route path="reports" element={<Reports />} />
               <Route path="obras" element={<Obras />} />
               <Route path="users" element={<UsersPage />} />
               <Route path="settings/stock-alerts" element={<AlertSettings />} />

@@ -43,7 +43,13 @@ async function createIfMissing(collectionName: string, id: string, data: Record<
   }
 }
 
+// VERSÃO EXPERIMENTAL: a criação automática de obras, funcionários e EPIs fictícios
+// fica DESLIGADA por padrão para que o uso experimental nunca insira dados no banco.
+// Só é possível religar com VITE_ENABLE_DEMO_DATA=true em um projeto Firebase de testes.
+export const DEMO_DATA_ENABLED = import.meta.env.VITE_ENABLE_DEMO_DATA === 'true';
+
 export async function ensureDemoData(companyId: string) {
+  if (!DEMO_DATA_ENABLED) return;
   const now = new Date().toISOString();
 
   await Promise.all(DEMO_OBRAS.map(obra => createIfMissing('obras', obra.id, {

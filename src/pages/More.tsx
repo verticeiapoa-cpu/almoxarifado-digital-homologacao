@@ -1,11 +1,13 @@
 import { Link } from 'react-router-dom';
-import { BellRing, Building2, ChevronRight, Shield, UserCog, UserRoundCheck } from 'lucide-react';
+import { ArrowLeftRight, BellRing, Building2, ChevronRight, FileSpreadsheet, Shield, UserCog, UserRoundCheck } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 
 export default function More() {
   const { isAdmin } = useAuth();
   const links = [
     { to: '/materials', label: 'Estoque de EPIs', description: 'Catálogo e certificados de aprovação', icon: Shield },
+    { to: '/movements', label: 'Movimentações', description: 'Entradas, entregas e ajustes por obra', icon: ArrowLeftRight },
+    { to: '/reports', label: 'Relatórios', description: 'Posição de estoque e histórico em CSV', icon: FileSpreadsheet },
     ...(isAdmin ? [
       { to: '/obras', label: 'Obras e Canteiros', description: 'Cadastro e situação das obras', icon: Building2 },
       { to: '/users', label: 'Almoxarifes e Usuários', description: 'Perfis, convites e permissões', icon: UserCog },
