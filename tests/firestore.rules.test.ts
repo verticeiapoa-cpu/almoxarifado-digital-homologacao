@@ -280,6 +280,257 @@ describe('transação operacional de entrega', () => {
   });
 });
 
+describe('transferência entre obras — etapa 2', () => {
+  it('reconcilia origem, destino e dois movimentos na mesma transação', async () => {
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    const sourceRef = doc(db, 'inventoryStock/obra-a__material-a');
+    const destinationRef = doc(db, 'inventoryStock/obra-b__material-a');
+    await assertSucceeds(runTransaction(db, async transaction => {
+      const [sourceSnapshot, destinationSnapshot] = await Promise.all([
+        transaction.get(sourceRef), transaction.get(destinationRef),
+      ]);
+      const source = sourceSnapshot.data()!;
+      const sourceAfter = source.quantity - 3;
+      const destinationBefore = destinationSnapshot.exists() ? destinationSnapshot.data()!.quantity : 0;
+      const destinationAfter = destinationBefore + 3;
+      const transferId = 'transfer-stage2-a';
+      transaction.update(sourceRef, { quantity: sourceAfter, lowStockAlertSent: false, updatedAt: '2026-11-10T12:00:00.000Z' });
+      transaction.set(destinationRef, {
+        id: 'obra-b__material-a', companyId: COMPANY, obraId: 'obra-b', obraName: 'OBRA B',
+        materialId: 'material-a', materialDescription: 'CAPACETE', ca: '123',
+        quantity: destinationAfter, minimumStock: 5, unit: 'UN', lowStockAlertSent: false,
+        createdAt: 'x', updatedAt: '2026-11-10T12:00:00.000Z',
+      });
+      transaction.set(doc(db, `stockTransfers/${transferId}`), {
+        id: transferId, companyId: COMPANY, sourceObraId: 'obra-a', sourceObraName: 'OBRA A',
+        destinationObraId: 'obra-b', destinationObraName: 'OBRA B',
+        materialId: 'material-a', materialDescription: 'CAPACETE', quantity: 3, unit: 'UN',
+        reason: 'Redistribuição de estoque', sourceStockId: 'obra-a__material-a',
+        destinationStockId: 'obra-b__material-a', sourceBalanceBefore: source.quantity,
+        sourceBalanceAfter: sourceAfter, destinationBalanceBefore: destinationBefore,
+        destinationBalanceAfter: destinationAfter, status: 'COMPLETED',
+        createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+      transaction.set(doc(db, 'stockMovements/transfer-out-a'), {
+        id: 'transfer-out-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+        materialId: 'material-a', materialDescription: 'CAPACETE', type: 'TRANSFER',
+        quantity: -3, balanceBefore: source.quantity, balanceAfter: sourceAfter,
+        notes: 'Transferência de saída', createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+      transaction.set(doc(db, 'stockMovements/transfer-in-a'), {
+        id: 'transfer-in-a', companyId: COMPANY, obraId: 'obra-b', obraName: 'OBRA B',
+        materialId: 'material-a', materialDescription: 'CAPACETE', type: 'TRANSFER',
+        quantity: 3, balanceBefore: destinationBefore, balanceAfter: destinationAfter,
+        notes: 'Transferência de entrada', createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+    }));
+  });
+
+  it('bloqueia transferência iniciada por almoxarife', async () => {
+    const db = env.authenticatedContext('storekeeper', { email: 'almoxarife@example.com' }).firestore();
+    await assertFails(setDoc(doc(db, 'stockTransfers/transfer-forbidden'), {
+      id: 'transfer-forbidden', companyId: COMPANY, sourceObraId: 'obra-a',
+      destinationObraId: 'obra-b', materialId: 'material-a', quantity: 1,
+      reason: 'Transferência teste', createdBy: 'storekeeper',
+    }));
+  });
+
+  it('impede alteração e exclusão do registro de transferência', async () => {
+    await env.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'stockTransfers/immutable-transfer'), {
+        id: 'immutable-transfer', companyId: COMPANY, sourceObraId: 'obra-a',
+        destinationObraId: 'obra-b', createdBy: 'admin',
+      });
+    });
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    await assertFails(updateDoc(doc(db, 'stockTransfers/immutable-transfer'), { quantity: 999 }));
+    await assertFails(deleteDoc(doc(db, 'stockTransfers/immutable-transfer')));
+  });
+});
+
+describe('recebimento de estoque — etapa 2', () => {
+  it('registra entrada, saldo e movimento atomicamente para administrador', async () => {
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    const stockRef = doc(db, 'inventoryStock/obra-a__material-a');
+    await assertSucceeds(runTransaction(db, async transaction => {
+      const snapshot = await transaction.get(stockRef);
+      const stock = snapshot.data()!;
+      const receiptId = 'receipt-stage2-a';
+      const movementId = 'movement-stage2-a';
+      const after = stock.quantity + 4;
+      transaction.update(stockRef, { quantity: after, lowStockAlertSent: false, updatedAt: '2026-11-10T12:00:00.000Z' });
+      transaction.set(doc(db, `stockReceipts/${receiptId}`), {
+        id: receiptId, companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+        materialId: 'material-a', materialDescription: 'CAPACETE', ca: '123',
+        stockId: 'obra-a__material-a', quantity: 4, unit: 'UN', reference: 'NF 123',
+        supplier: 'Fornecedor Teste', lotNumber: 'LOTE-1', expiresAt: '', notes: '',
+        balanceBefore: stock.quantity, balanceAfter: after,
+        createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+      transaction.set(doc(db, `stockMovements/${movementId}`), {
+        id: movementId, companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+        materialId: 'material-a', materialDescription: 'CAPACETE', type: 'ENTRY',
+        quantity: 4, balanceBefore: stock.quantity, balanceAfter: after,
+        notes: 'Recebimento NF 123', createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+    }));
+  });
+
+  it('bloqueia recebimento criado por almoxarife', async () => {
+    const db = env.authenticatedContext('storekeeper', { email: 'almoxarife@example.com' }).firestore();
+    await assertFails(setDoc(doc(db, 'stockReceipts/receipt-forbidden'), {
+      id: 'receipt-forbidden', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+      materialId: 'material-a', materialDescription: 'CAPACETE', stockId: 'obra-a__material-a',
+      quantity: 1, unit: 'UN', reference: 'NF 1', balanceBefore: 10, balanceAfter: 11,
+      createdAt: 'x', createdBy: 'storekeeper',
+    }));
+  });
+
+  it('impede alteração ou exclusão do comprovante de recebimento', async () => {
+    await env.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'stockReceipts/immutable-receipt'), {
+        id: 'immutable-receipt', companyId: COMPANY, obraId: 'obra-a', createdBy: 'admin',
+      });
+    });
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    await assertFails(updateDoc(doc(db, 'stockReceipts/immutable-receipt'), { quantity: 999 }));
+    await assertFails(deleteDoc(doc(db, 'stockReceipts/immutable-receipt')));
+  });
+});
+
+describe('devoluções de estoque — etapa 2', () => {
+  it('aceita item em boas condições e atualiza saldo com movimento RETURN', async () => {
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    const stockRef = doc(db, 'inventoryStock/obra-a__material-a');
+    await assertSucceeds(runTransaction(db, async transaction => {
+      const snapshot = await transaction.get(stockRef);
+      const stock = snapshot.data()!;
+      const after = stock.quantity + 2;
+      transaction.update(stockRef, { quantity: after, lowStockAlertSent: false, updatedAt: '2026-11-10T12:00:00.000Z' });
+      transaction.set(doc(db, 'stockReturns/return-good-a'), {
+        id: 'return-good-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+        materialId: 'material-a', materialDescription: 'CAPACETE', ca: '123',
+        quantity: 2, unit: 'UN', condition: 'GOOD', destination: 'AVAILABLE',
+        reason: 'Devolução em boas condições', stockId: 'obra-a__material-a',
+        balanceBefore: stock.quantity, balanceAfter: after,
+        createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+      transaction.set(doc(db, 'stockMovements/return-movement-a'), {
+        id: 'return-movement-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+        materialId: 'material-a', materialDescription: 'CAPACETE', type: 'RETURN',
+        quantity: 2, balanceBefore: stock.quantity, balanceAfter: after,
+        notes: 'Devolução em boas condições', createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+    }));
+  });
+
+  it('registra quarentena sem aumentar o estoque disponível', async () => {
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    await assertSucceeds(setDoc(doc(db, 'stockReturns/return-quarantine-a'), {
+      id: 'return-quarantine-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+      materialId: 'material-a', materialDescription: 'CAPACETE', ca: '123',
+      quantity: 1, unit: 'UN', condition: 'DAMAGED', destination: 'QUARANTINE',
+      reason: 'Aguardando avaliação técnica', stockId: 'obra-a__material-a',
+      balanceBefore: 10, balanceAfter: 10,
+      createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+    }));
+  });
+
+  it('bloqueia item danificado no estoque disponível', async () => {
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    await assertFails(setDoc(doc(db, 'stockReturns/return-damaged-a'), {
+      id: 'return-damaged-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+      materialId: 'material-a', materialDescription: 'CAPACETE', ca: '123',
+      quantity: 1, unit: 'UN', condition: 'DAMAGED', destination: 'AVAILABLE',
+      reason: 'Item apresenta avaria', stockId: 'obra-a__material-a',
+      balanceBefore: 10, balanceAfter: 11,
+      createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+    }));
+  });
+
+  it('bloqueia devolução criada por almoxarife', async () => {
+    const db = env.authenticatedContext('storekeeper', { email: 'almoxarife@example.com' }).firestore();
+    await assertFails(setDoc(doc(db, 'stockReturns/return-forbidden-a'), {
+      id: 'return-forbidden-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+      materialId: 'material-a', materialDescription: 'CAPACETE', ca: '123',
+      quantity: 1, unit: 'UN', condition: 'GOOD', destination: 'AVAILABLE',
+      reason: 'Devolução em boas condições', stockId: 'obra-a__material-a',
+      balanceBefore: 10, balanceAfter: 11,
+      createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'storekeeper',
+    }));
+  });
+
+  it('impede alteração e exclusão do registro de devolução', async () => {
+    await env.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'stockReturns/immutable-return-a'), {
+        id: 'immutable-return-a', companyId: COMPANY, obraId: 'obra-a', createdBy: 'admin',
+      });
+    });
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    await assertFails(updateDoc(doc(db, 'stockReturns/immutable-return-a'), { quantity: 999 }));
+    await assertFails(deleteDoc(doc(db, 'stockReturns/immutable-return-a')));
+  });
+});
+
+
+describe('inventário físico — etapa 2', () => {
+  it('permite contagem e ajuste de saldo em transação atômica para administrador', async () => {
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    const stockRef = doc(db, 'inventoryStock/obra-a__material-a');
+    await assertSucceeds(runTransaction(db, async transaction => {
+      const snapshot = await transaction.get(stockRef);
+      const before = snapshot.data()!.quantity;
+      const counted = before - 2;
+      transaction.update(stockRef, { quantity: counted, updatedAt: '2026-11-10T12:00:00.000Z', lowStockAlertSent: false });
+      transaction.set(doc(db, 'inventoryCounts/count-adjustment-a'), {
+        id: 'count-adjustment-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+        stockId: 'obra-a__material-a', materialId: 'material-a', materialDescription: 'CAPACETE',
+        ca: '123', unit: 'UN', systemQuantity: before, countedQuantity: counted,
+        difference: -2, reason: 'Conferência física mensal', createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+      transaction.set(doc(db, 'stockMovements/count-adjustment-movement-a'), {
+        id: 'count-adjustment-movement-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+        materialId: 'material-a', materialDescription: 'CAPACETE', type: 'ADJUSTMENT',
+        quantity: -2, balanceBefore: before, balanceAfter: counted,
+        notes: 'Ajuste por inventário físico', createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+    }));
+  });
+
+  it('permite registrar contagem sem divergência sem movimento', async () => {
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    const stockRef = doc(db, 'inventoryStock/obra-a__material-a');
+    await assertSucceeds(runTransaction(db, async transaction => {
+      const snapshot = await transaction.get(stockRef);
+      const quantity = snapshot.data()!.quantity;
+      transaction.set(doc(db, 'inventoryCounts/count-no-difference-a'), {
+        id: 'count-no-difference-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+        stockId: 'obra-a__material-a', materialId: 'material-a', materialDescription: 'CAPACETE',
+        ca: '123', unit: 'UN', systemQuantity: quantity, countedQuantity: quantity,
+        difference: 0, reason: 'Conferência sem divergência', createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+    }));
+  });
+
+  it('bloqueia inventário por almoxarife e impede alteração ou exclusão da contagem', async () => {
+    const storekeeperDb = env.authenticatedContext('storekeeper', { email: 'almoxarife@example.com' }).firestore();
+    await assertFails(setDoc(doc(storekeeperDb, 'inventoryCounts/count-forbidden-a'), {
+      id: 'count-forbidden-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+      stockId: 'obra-a__material-a', materialId: 'material-a', materialDescription: 'CAPACETE',
+      ca: '123', unit: 'UN', systemQuantity: 10, countedQuantity: 9, difference: -1,
+      reason: 'Contagem não autorizada', createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'storekeeper',
+    }));
+    await env.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'inventoryCounts/immutable-count-a'), {
+        id: 'immutable-count-a', companyId: COMPANY, obraId: 'obra-a', createdBy: 'admin',
+      });
+    });
+    const adminDb = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    await assertFails(updateDoc(doc(adminDb, 'inventoryCounts/immutable-count-a'), { countedQuantity: 999 }));
+    await assertFails(deleteDoc(doc(adminDb, 'inventoryCounts/immutable-count-a')));
+  });
+});
+
 describe('histórico de entregas', () => {
   it('permite entrega válida e impede alteração ou exclusão posterior', async () => {
     const db = env.authenticatedContext('storekeeper', { email: 'almoxarife@example.com' }).firestore();

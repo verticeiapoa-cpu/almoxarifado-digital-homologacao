@@ -433,7 +433,8 @@ service cloud.firestore {
     match /inventoryStock/{stockId} {
       allow list: if isAdmin()
         && resource.data.companyId == profile().data.companyId;
-      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow read: if (resource == null && isAdmin())
+        || (sameCompany(resource.data) && canAccessObra(resource.data.obraId));
       allow create: if isAdmin()
         && sameCompany(request.resource.data)
         && canAccessObra(request.resource.data.obraId)
@@ -591,6 +592,126 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && request.resource.data.id == deliveryId
         && validDelivery(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // Stage 2 — transfers atomically reconcile both worksite balances.
+    // Only administrators can initiate cross-worksite transfers in this release.
+    // Stage 2 — returns are immutable; only inspected GOOD items may re-enter stock.
+    match /stockReturns/{returnId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if isAdmin()
+        && sameCompany(request.resource.data)
+        && request.resource.data.id == returnId
+        && request.resource.data.obraId is string
+        && request.resource.data.stockId == request.resource.data.obraId + '__' + request.resource.data.materialId
+        && request.resource.data.materialId is string
+        && request.resource.data.quantity is int
+        && request.resource.data.quantity > 0 && request.resource.data.quantity <= 999999
+        && request.resource.data.condition in ['GOOD', 'DAMAGED', 'UNSAFE']
+        && request.resource.data.destination in ['AVAILABLE', 'QUARANTINE', 'DISCARDED']
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() >= 5 && request.resource.data.reason.size() <= 300
+        && request.resource.data.balanceBefore is int && request.resource.data.balanceBefore >= 0
+        && request.resource.data.balanceAfter is int && request.resource.data.balanceAfter >= 0
+        && get(/databases/$(database)/documents/inventoryStock/$(request.resource.data.stockId)).data.companyId == request.resource.data.companyId
+        && get(/databases/$(database)/documents/inventoryStock/$(request.resource.data.stockId)).data.quantity == request.resource.data.balanceBefore
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt is string
+        && (
+          (
+            request.resource.data.destination == 'AVAILABLE'
+            && request.resource.data.condition == 'GOOD'
+            && request.resource.data.balanceAfter == request.resource.data.balanceBefore + request.resource.data.quantity
+            && getAfter(/databases/$(database)/documents/inventoryStock/$(request.resource.data.stockId)).data.quantity == request.resource.data.balanceAfter
+          )
+          ||
+          (
+            request.resource.data.destination in ['QUARANTINE', 'DISCARDED']
+            && request.resource.data.balanceAfter == request.resource.data.balanceBefore
+          )
+        );
+      allow update, delete: if false;
+    }
+
+    match /stockTransfers/{transferId} {
+      allow read: if sameCompany(resource.data)
+        && (canAccessObra(resource.data.sourceObraId) || canAccessObra(resource.data.destinationObraId));
+      allow create: if isAdmin()
+        && sameCompany(request.resource.data)
+        && request.resource.data.id == transferId
+        && request.resource.data.sourceObraId is string
+        && request.resource.data.destinationObraId is string
+        && request.resource.data.sourceObraId != request.resource.data.destinationObraId
+        && request.resource.data.sourceStockId == request.resource.data.sourceObraId + '__' + request.resource.data.materialId
+        && request.resource.data.destinationStockId == request.resource.data.destinationObraId + '__' + request.resource.data.materialId
+        && request.resource.data.quantity is int && request.resource.data.quantity > 0
+        && request.resource.data.quantity <= 999999
+        && request.resource.data.sourceBalanceBefore is int
+        && request.resource.data.sourceBalanceBefore >= request.resource.data.quantity
+        && request.resource.data.sourceBalanceAfter == request.resource.data.sourceBalanceBefore - request.resource.data.quantity
+        && request.resource.data.destinationBalanceBefore is int
+        && request.resource.data.destinationBalanceBefore >= 0
+        && request.resource.data.destinationBalanceAfter == request.resource.data.destinationBalanceBefore + request.resource.data.quantity
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() >= 5 && request.resource.data.reason.size() <= 300
+        && request.resource.data.status == 'COMPLETED'
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt is string
+        && getAfter(/databases/$(database)/documents/inventoryStock/$(request.resource.data.sourceStockId)).data.quantity == request.resource.data.sourceBalanceAfter
+        && getAfter(/databases/$(database)/documents/inventoryStock/$(request.resource.data.destinationStockId)).data.quantity == request.resource.data.destinationBalanceAfter;
+      allow update, delete: if false;
+    }
+
+    // Stage 2 — auditable inbound stock receipts. A receipt can only be
+    // created by an administrator in the same atomic write as its stock increase
+    // and ENTRY movement (the movement rule verifies getAfter(stock)).
+    match /stockReceipts/{receiptId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if isAdmin()
+        && sameCompany(request.resource.data)
+        && canAccessObra(request.resource.data.obraId)
+        && request.resource.data.id == receiptId
+        && request.resource.data.stockId == request.resource.data.obraId + '__' + request.resource.data.materialId
+        && request.resource.data.materialId is string
+        && request.resource.data.materialDescription is string
+        && request.resource.data.quantity is int
+        && request.resource.data.quantity > 0
+        && request.resource.data.quantity <= 999999
+        && request.resource.data.balanceBefore is int
+        && request.resource.data.balanceBefore >= 0
+        && request.resource.data.balanceAfter == request.resource.data.balanceBefore + request.resource.data.quantity
+        && request.resource.data.reference is string
+        && request.resource.data.reference.size() > 0
+        && request.resource.data.reference.size() <= 80
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt is string
+        && getAfter(/databases/$(database)/documents/inventoryStock/$(request.resource.data.stockId)).data.quantity == request.resource.data.balanceAfter;
+      allow update, delete: if false;
+    }
+
+
+    // Physical inventory: immutable count record and optional stock adjustment
+    // must be committed atomically. A zero-difference count writes no movement.
+    match /inventoryCounts/{countId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if isAdmin()
+        && sameCompany(request.resource.data)
+        && canAccessObra(request.resource.data.obraId)
+        && request.resource.data.id == countId
+        && request.resource.data.stockId == request.resource.data.obraId + '__' + request.resource.data.materialId
+        && request.resource.data.materialId is string
+        && request.resource.data.systemQuantity is int && request.resource.data.systemQuantity >= 0
+        && request.resource.data.countedQuantity is int && request.resource.data.countedQuantity >= 0
+        && request.resource.data.countedQuantity <= 999999
+        && request.resource.data.difference == request.resource.data.countedQuantity - request.resource.data.systemQuantity
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() >= 5 && request.resource.data.reason.size() <= 300
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt is string
+        && get(/databases/$(database)/documents/inventoryStock/$(request.resource.data.stockId)).data.companyId == request.resource.data.companyId
+        && get(/databases/$(database)/documents/inventoryStock/$(request.resource.data.stockId)).data.quantity == request.resource.data.systemQuantity
+        && getAfter(/databases/$(database)/documents/inventoryStock/$(request.resource.data.stockId)).data.quantity == request.resource.data.countedQuantity;
       allow update, delete: if false;
     }
 

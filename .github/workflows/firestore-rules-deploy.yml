@@ -1,0 +1,55 @@
+name: Firestore Rules — Validate and Deploy
+
+on:
+  push:
+    branches:
+      - feature/etapa2-finalizacao-auditoria
+    paths:
+      - firestore.rules
+      - firebase.json
+      - tests/firestore.rules.test.ts
+      - package.json
+      - package-lock.json
+      - .github/workflows/firestore-rules-deploy.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_GEN_LANG_CLIENT_0038131539 || secrets.FIREBASE_SERVICE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate Firestore rules in emulator
+        run: npm run test:rules
+      - name: Check deployment credentials
+        shell: bash
+        run: |
+          if [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "HAS_FIREBASE_CREDENTIALS=true" >> "$GITHUB_ENV"
+          else
+            echo "HAS_FIREBASE_CREDENTIALS=false" >> "$GITHUB_ENV"
+            echo "::warning::Rules passed emulator tests, but production deployment was skipped because the Firebase service-account secret is not configured."
+          fi
+      - name: Authenticate to Google Cloud
+        if: env.HAS_FIREBASE_CREDENTIALS == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ env.FIREBASE_SERVICE_ACCOUNT }}
+      - name: Deploy Firestore rules to the configured named database
+        if: env.HAS_FIREBASE_CREDENTIALS == 'true'
+        run: npx --yes firebase-tools@15.29.0 deploy --project gen-lang-client-0038131539 --only firestore:rules --non-interactive

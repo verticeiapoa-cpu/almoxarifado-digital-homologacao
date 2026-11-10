@@ -120,6 +120,28 @@ export interface StockMovement {
   createdBy: string;
 }
 
+export interface StockReturn {
+  id: string;
+  companyId: string;
+  obraId: string;
+  obraName: string;
+  materialId: string;
+  materialDescription: string;
+  ca: string;
+  quantity: number;
+  unit: string;
+  condition: 'GOOD' | 'DAMAGED' | 'UNSAFE';
+  destination: 'AVAILABLE' | 'QUARANTINE' | 'DISCARDED';
+  reason: string;
+  employeeId?: string;
+  employeeName?: string;
+  stockId: string;
+  balanceBefore: number;
+  balanceAfter: number;
+  createdAt: string;
+  createdBy: string;
+}
+
 export interface StockAlertSettings {
   id: string;
   companyId: string;
@@ -180,5 +202,24 @@ export interface Delivery {
   driveFileId?: string; // ID in Google Drive
   createdAt: string;
   updatedAt: string;
+  createdBy: string;
+}
+
+
+export interface InventoryCount {
+  id: string;
+  companyId: string;
+  obraId: string;
+  obraName: string;
+  stockId: string;
+  materialId: string;
+  materialDescription: string;
+  ca: string;
+  unit: string;
+  systemQuantity: number;
+  countedQuantity: number;
+  difference: number;
+  reason: string;
+  createdAt: string;
   createdBy: string;
 }
