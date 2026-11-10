@@ -20,6 +20,7 @@ const UsersPage = lazy(() => import('./pages/Users'));
 const AlertSettings = lazy(() => import('./pages/AlertSettings'));
 const TemporaryAssignments = lazy(() => import('./pages/TemporaryAssignments'));
 const InventoryCountPage = lazy(() => import('./pages/InventoryCount'));
+const StockOperationsPage = lazy(() => import('./pages/StockOperations'));
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, profile, loading, accessError, signIn, signOut, refreshProfile } = useAuth();
@@ -81,6 +82,7 @@ export default function App() {
               <Route path="employees" element={<Employees />} />
               <Route path="materials" element={<Materials />} />
               <Route path="inventory-count" element={<InventoryCountPage />} />
+              <Route path="stock-operations" element={<StockOperationsPage />} />
               <Route path="obras" element={<Obras />} />
               <Route path="users" element={<UsersPage />} />
               <Route path="settings/stock-alerts" element={<AlertSettings />} />
