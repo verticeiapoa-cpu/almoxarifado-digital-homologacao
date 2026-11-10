@@ -689,6 +689,31 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+
+    // Physical inventory: immutable count record and optional stock adjustment
+    // must be committed atomically. A zero-difference count writes no movement.
+    match /inventoryCounts/{countId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if isAdmin()
+        && sameCompany(request.resource.data)
+        && canAccessObra(request.resource.data.obraId)
+        && request.resource.data.id == countId
+        && request.resource.data.stockId == request.resource.data.obraId + '__' + request.resource.data.materialId
+        && request.resource.data.materialId is string
+        && request.resource.data.systemQuantity is int && request.resource.data.systemQuantity >= 0
+        && request.resource.data.countedQuantity is int && request.resource.data.countedQuantity >= 0
+        && request.resource.data.countedQuantity <= 999999
+        && request.resource.data.difference == request.resource.data.countedQuantity - request.resource.data.systemQuantity
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() >= 5 && request.resource.data.reason.size() <= 300
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt is string
+        && get(/databases/$(database)/documents/inventoryStock/$(request.resource.data.stockId)).data.companyId == request.resource.data.companyId
+        && get(/databases/$(database)/documents/inventoryStock/$(request.resource.data.stockId)).data.quantity == request.resource.data.systemQuantity
+        && getAfter(/databases/$(database)/documents/inventoryStock/$(request.resource.data.stockId)).data.quantity == request.resource.data.countedQuantity;
+      allow update, delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
