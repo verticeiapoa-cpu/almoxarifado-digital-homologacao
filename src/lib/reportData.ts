@@ -69,7 +69,7 @@ export async function fetchMovements(db: Firestore, scope: DataScope, selection:
   const normalized = snapshots
     .flatMap(snapshot => snapshot.docs.map(item => normalizeMovement(item.id, item.data() as Record<string, unknown>)))
     .filter((row): row is MovementView => row !== null);
-  let rows = restrictToScope(normalized, scope);
+  let rows: MovementView[] = restrictToScope<MovementView>(normalized, scope);
   if (unordered) rows = filterMovements(rows, { fromIso: options.fromIso, toIso: options.toIso });
   rows = sortMovementsDesc(rows).slice(0, max);
   return { rows, truncated, unordered };
