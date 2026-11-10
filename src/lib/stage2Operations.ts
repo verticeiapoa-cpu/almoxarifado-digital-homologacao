@@ -119,7 +119,6 @@ export async function receiveStock(db: Firestore, input: ReceiveStockInput) {
       quantity: input.quantity,
       balanceBefore: before,
       balanceAfter: after,
-      reason: `Recebimento ${receiptRef.id} — ${receipt.reference}`,
       createdAt: now,
       createdBy: input.userId,
     };
@@ -129,8 +128,7 @@ export async function receiveStock(db: Firestore, input: ReceiveStockInput) {
     transaction.set(receiptRef, receipt);
     transaction.set(movementRef, {
       ...movement,
-      notes: movement.reason,
-      reason: undefined,
+      notes: `Recebimento ${receiptRef.id} — ${receipt.reference}`,
     });
 
     return { receiptId: receiptRef.id, movementId: movementRef.id, stock };
