@@ -123,7 +123,7 @@ export async function receiveStock(db: Firestore, input: ReceiveStockInput) {
       createdBy: input.userId,
     };
 
-    if (stockSnapshot.exists()) transaction.update(stockRef, stock);
+    if (stockSnapshot.exists()) transaction.update(stockRef, { ...stock });
     else transaction.set(stockRef, stock);
     transaction.set(receiptRef, receipt);
     transaction.set(movementRef, {
