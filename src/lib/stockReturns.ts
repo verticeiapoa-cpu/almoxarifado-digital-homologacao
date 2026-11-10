@@ -50,13 +50,14 @@ export async function registerStockReturn(db: Firestore, input: ReturnStockInput
 
   return runTransaction(db, async transaction => {
     const snapshot = await transaction.get(stockRef);
-    const previous = snapshot.exists() ? snapshot.data() as InventoryStock : undefined;
+    if (!snapshot.exists()) throw new Error('Cadastre o saldo do material antes de registrar a devolução.');
+    const previous = snapshot.data() as InventoryStock;
     if (previous && (previous.companyId !== input.companyId || previous.obraId !== input.obraId || previous.materialId !== input.materialId)) {
       throw new Error('O saldo não corresponde à empresa, obra e material selecionados.');
     }
-    const before = previous?.quantity ?? 0;
+    const before = previous.quantity;
     const increasesAvailable = input.destination === 'AVAILABLE';
-    if (increasesAvailable && !snapshot.exists()) throw new Error('Cadastre o saldo do material antes de aceitar a devolução.');
+
     const after = increasesAvailable ? before + input.quantity : before;
     if (!Number.isSafeInteger(after) || after > 999999) throw new Error('O saldo resultante ultrapassa o limite permitido.');
 
