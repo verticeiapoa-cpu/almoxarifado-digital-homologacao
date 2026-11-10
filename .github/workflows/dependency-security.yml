@@ -26,6 +26,10 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: Capture baseline audit
         run: |
           npm audit --json > audit-before.json || true
@@ -40,6 +44,11 @@ jobs:
       - name: Full dependency audit
         continue-on-error: true
         run: npm audit
+      - name: Capture final audit JSON
+        if: always()
+        run: |
+          npm audit --json > audit-after.json || true
+          node -e 'const a=require("./audit-after.json"); console.log(JSON.stringify(a.metadata?.vulnerabilities ?? {}, null, 2))'
       - name: TypeScript validation
         run: npm run lint
       - name: Unit tests
@@ -55,6 +64,7 @@ jobs:
           name: dependency-audit-reports
           path: |
             audit-before.json
+            audit-after.json
             package-lock.json
           if-no-files-found: ignore
       - name: Commit compatible lockfile updates
