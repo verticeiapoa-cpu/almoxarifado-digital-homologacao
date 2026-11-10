@@ -52,7 +52,9 @@ export async function transferStock(db: Firestore, input: TransferStockInput) {
     const destination = destinationSnapshot.exists() ? destinationSnapshot.data() as InventoryStock : undefined;
 
     for (const stock of [source, destination].filter(Boolean) as InventoryStock[]) {
-      if (stock.companyId !== input.companyId || stock.materialId !== input.materialId) {
+      if (stock.companyId !== input.companyId || stock.materialId !== input.materialId ||
+        (stock === source && stock.obraId !== input.sourceObraId) ||
+        (stock === destination && stock.obraId !== input.destinationObraId)) {
         throw new Error('O estoque não pertence à empresa ou ao material selecionado.');
       }
     }
