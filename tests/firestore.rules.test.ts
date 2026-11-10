@@ -280,6 +280,74 @@ describe('transação operacional de entrega', () => {
   });
 });
 
+describe('transferência entre obras — etapa 2', () => {
+  it('reconcilia origem, destino e dois movimentos na mesma transação', async () => {
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    const sourceRef = doc(db, 'inventoryStock/obra-a__material-a');
+    const destinationRef = doc(db, 'inventoryStock/obra-b__material-a');
+    await assertSucceeds(runTransaction(db, async transaction => {
+      const [sourceSnapshot, destinationSnapshot] = await Promise.all([
+        transaction.get(sourceRef), transaction.get(destinationRef),
+      ]);
+      const source = sourceSnapshot.data()!;
+      const sourceAfter = source.quantity - 3;
+      const destinationBefore = destinationSnapshot.exists() ? destinationSnapshot.data()!.quantity : 0;
+      const destinationAfter = destinationBefore + 3;
+      const transferId = 'transfer-stage2-a';
+      transaction.update(sourceRef, { quantity: sourceAfter, lowStockAlertSent: false, updatedAt: '2026-11-10T12:00:00.000Z' });
+      transaction.set(destinationRef, {
+        id: 'obra-b__material-a', companyId: COMPANY, obraId: 'obra-b', obraName: 'OBRA B',
+        materialId: 'material-a', materialDescription: 'CAPACETE', ca: '123',
+        quantity: destinationAfter, minimumStock: 5, unit: 'UN', lowStockAlertSent: false,
+        createdAt: 'x', updatedAt: '2026-11-10T12:00:00.000Z',
+      });
+      transaction.set(doc(db, `stockTransfers/${transferId}`), {
+        id: transferId, companyId: COMPANY, sourceObraId: 'obra-a', sourceObraName: 'OBRA A',
+        destinationObraId: 'obra-b', destinationObraName: 'OBRA B',
+        materialId: 'material-a', materialDescription: 'CAPACETE', quantity: 3, unit: 'UN',
+        reason: 'Redistribuição de estoque', sourceStockId: 'obra-a__material-a',
+        destinationStockId: 'obra-b__material-a', sourceBalanceBefore: source.quantity,
+        sourceBalanceAfter: sourceAfter, destinationBalanceBefore: destinationBefore,
+        destinationBalanceAfter: destinationAfter, status: 'COMPLETED',
+        createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+      transaction.set(doc(db, 'stockMovements/transfer-out-a'), {
+        id: 'transfer-out-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+        materialId: 'material-a', materialDescription: 'CAPACETE', type: 'TRANSFER',
+        quantity: -3, balanceBefore: source.quantity, balanceAfter: sourceAfter,
+        notes: 'Transferência de saída', createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+      transaction.set(doc(db, 'stockMovements/transfer-in-a'), {
+        id: 'transfer-in-a', companyId: COMPANY, obraId: 'obra-b', obraName: 'OBRA B',
+        materialId: 'material-a', materialDescription: 'CAPACETE', type: 'TRANSFER',
+        quantity: 3, balanceBefore: destinationBefore, balanceAfter: destinationAfter,
+        notes: 'Transferência de entrada', createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+    }));
+  });
+
+  it('bloqueia transferência iniciada por almoxarife', async () => {
+    const db = env.authenticatedContext('storekeeper', { email: 'almoxarife@example.com' }).firestore();
+    await assertFails(setDoc(doc(db, 'stockTransfers/transfer-forbidden'), {
+      id: 'transfer-forbidden', companyId: COMPANY, sourceObraId: 'obra-a',
+      destinationObraId: 'obra-b', materialId: 'material-a', quantity: 1,
+      reason: 'Transferência teste', createdBy: 'storekeeper',
+    }));
+  });
+
+  it('impede alteração e exclusão do registro de transferência', async () => {
+    await env.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'stockTransfers/immutable-transfer'), {
+        id: 'immutable-transfer', companyId: COMPANY, sourceObraId: 'obra-a',
+        destinationObraId: 'obra-b', createdBy: 'admin',
+      });
+    });
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    await assertFails(updateDoc(doc(db, 'stockTransfers/immutable-transfer'), { quantity: 999 }));
+    await assertFails(deleteDoc(doc(db, 'stockTransfers/immutable-transfer')));
+  });
+});
+
 describe('recebimento de estoque — etapa 2', () => {
   it('registra entrada, saldo e movimento atomicamente para administrador', async () => {
     const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
