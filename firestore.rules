@@ -594,6 +594,37 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Stage 2 — transfers atomically reconcile both worksite balances.
+    // Only administrators can initiate cross-worksite transfers in this release.
+    match /stockTransfers/{transferId} {
+      allow read: if sameCompany(resource.data)
+        && (canAccessObra(resource.data.sourceObraId) || canAccessObra(resource.data.destinationObraId));
+      allow create: if isAdmin()
+        && sameCompany(request.resource.data)
+        && request.resource.data.id == transferId
+        && request.resource.data.sourceObraId is string
+        && request.resource.data.destinationObraId is string
+        && request.resource.data.sourceObraId != request.resource.data.destinationObraId
+        && request.resource.data.sourceStockId == request.resource.data.sourceObraId + '__' + request.resource.data.materialId
+        && request.resource.data.destinationStockId == request.resource.data.destinationObraId + '__' + request.resource.data.materialId
+        && request.resource.data.quantity is int && request.resource.data.quantity > 0
+        && request.resource.data.quantity <= 999999
+        && request.resource.data.sourceBalanceBefore is int
+        && request.resource.data.sourceBalanceBefore >= request.resource.data.quantity
+        && request.resource.data.sourceBalanceAfter == request.resource.data.sourceBalanceBefore - request.resource.data.quantity
+        && request.resource.data.destinationBalanceBefore is int
+        && request.resource.data.destinationBalanceBefore >= 0
+        && request.resource.data.destinationBalanceAfter == request.resource.data.destinationBalanceBefore + request.resource.data.quantity
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() >= 5 && request.resource.data.reason.size() <= 300
+        && request.resource.data.status == 'COMPLETED'
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt is string
+        && getAfter(/databases/$(database)/documents/inventoryStock/$(request.resource.data.sourceStockId)).data.quantity == request.resource.data.sourceBalanceAfter
+        && getAfter(/databases/$(database)/documents/inventoryStock/$(request.resource.data.destinationStockId)).data.quantity == request.resource.data.destinationBalanceAfter;
+      allow update, delete: if false;
+    }
+
     // Stage 2 — auditable inbound stock receipts. A receipt can only be
     // created by an administrator in the same atomic write as its stock increase
     // and ENTRY movement (the movement rule verifies getAfter(stock)).
