@@ -8,6 +8,9 @@ export interface UserProfile {
   companyName?: string;
   role: UserRole;
   assignedObraIds: string[]; // ['ALL'] or specific obra IDs
+  // Definido pelo administrador. Autoriza o almoxarife a confirmar ajustes de inventário.
+  // Ausente = false. Administradores sempre podem ajustar.
+  canAdjustStock?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -81,6 +84,8 @@ export interface InventoryStock {
   unit: string;
   lowStockAlertSent: boolean;
   lastLowStockAlertAt?: string;
+  // Movimentação que originou o último aumento/ajuste de saldo feito por operação da Etapa 2.
+  lastMovementId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -115,9 +120,160 @@ export interface StockMovement {
   balanceBefore: number;
   balanceAfter: number;
   deliveryId?: string;
-  reason?: string;
+  // As regras do Firestore aceitam "notes". "reason" existe apenas em documentos do formato antigo.
+  notes?: string;
+  // Operação de origem (Etapa 2). Ausente em movimentações antigas e em entregas de EPI.
+  operationType?: OperationType;
+  operationId?: string;
   createdAt: string;
   createdBy: string;
+}
+
+export type OperationType = 'RECEIPT' | 'TRANSFER' | 'RETURN' | 'INVENTORY';
+
+export interface Receipt {
+  id: string;
+  companyId: string;
+  obraId: string;
+  obraName: string;
+  materialId: string;
+  materialDescription: string;
+  quantity: number;
+  unit: string;
+  receivedAt: string; // AAAA-MM-DD
+  supplier?: string;
+  invoiceNumber?: string;
+  lot?: string;
+  expiresAt?: string; // AAAA-MM-DD, informativo (sem saldo por lote)
+  notes?: string;
+  balanceBefore: number;
+  balanceAfter: number;
+  movementId: string;
+  status: 'CONCLUIDA';
+  createdAt: string;
+  createdBy: string;
+  createdByName: string;
+}
+
+export type TransferStatus = 'PENDENTE' | 'CONCLUIDA' | 'CANCELADA';
+
+export interface Transfer {
+  id: string;
+  companyId: string;
+  fromObraId: string;
+  fromObraName: string;
+  toObraId: string;
+  toObraName: string;
+  materialId: string;
+  materialDescription: string;
+  quantity: number;
+  unit: string;
+  status: TransferStatus;
+  requestedBy: string;
+  requestedByName: string;
+  requestedAt: string;
+  notes?: string;
+  correctsTransferId?: string;
+  confirmedBy?: string;
+  confirmedByName?: string;
+  confirmedAt?: string;
+  outMovementId?: string;
+  inMovementId?: string;
+  cancelledBy?: string;
+  cancelledByName?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
+}
+
+export type ReturnCondition = 'BOM_ESTADO' | 'DANIFICADO' | 'INSERVIVEL' | 'PENDENTE_INSPECAO';
+
+export interface ReturnRecord {
+  id: string;
+  companyId: string;
+  obraId: string;
+  obraName: string;
+  employeeId: string;
+  employeeName: string;
+  deliveryId?: string;
+  deliveryItemIndex?: number;
+  materialId: string;
+  materialDescription: string;
+  quantity: number;
+  condition: ReturnCondition;
+  status: 'REGISTRADA' | 'INSPECIONADA';
+  returnedAt: string; // AAAA-MM-DD
+  receivedBy: string;
+  receivedByName: string;
+  notes?: string;
+  restocked: boolean;
+  movementId?: string;
+  balanceBefore?: number;
+  balanceAfter?: number;
+  resolution?: Exclude<ReturnCondition, 'PENDENTE_INSPECAO'>;
+  resolvedBy?: string;
+  resolvedByName?: string;
+  resolvedAt?: string;
+  resolutionNotes?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+// Controle da quantidade já devolvida por entrega e material (chave: {deliveryId}__{materialId}).
+export interface ReturnLedger {
+  id: string;
+  companyId: string;
+  obraId: string;
+  deliveryId: string;
+  materialId: string;
+  delivered: number;
+  returned: number;
+  lastReturnId: string;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export interface InventoryCount {
+  id: string;
+  companyId: string;
+  obraId: string;
+  obraName: string;
+  countedAt: string; // AAAA-MM-DD
+  countedBy: string;
+  countedByName: string;
+  status: 'EM_CONTAGEM' | 'CONFIRMADA' | 'CANCELADA';
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  closedBy?: string;
+  closedAt?: string;
+  cancelReason?: string;
+}
+
+export type InventoryItemStatus = 'SEM_DIVERGENCIA' | 'PENDENTE_AJUSTE' | 'AJUSTADO';
+
+// Chave: {countId}__{materialId}
+export interface InventoryCountItem {
+  id: string;
+  countId: string;
+  companyId: string;
+  obraId: string;
+  materialId: string;
+  materialDescription: string;
+  unit: string;
+  systemQty: number; // saldo usado como referência na contagem
+  countedQty: number;
+  difference: number; // countedQty - systemQty
+  justification?: string; // obrigatória quando difference != 0
+  status: InventoryItemStatus;
+  countedBy: string;
+  createdAt: string;
+  createdBy: string;
+  balanceBefore?: number;
+  balanceAfter?: number;
+  movementId?: string;
+  adjustedBy?: string;
+  adjustedByName?: string;
+  adjustedAt?: string;
 }
 
 export interface StockAlertSettings {

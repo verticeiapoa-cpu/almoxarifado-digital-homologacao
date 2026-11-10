@@ -145,7 +145,7 @@ service cloud.firestore {
 
     function validInventory(data, stockId) {
       return data.keys().hasAll(['id', 'companyId', 'obraId', 'obraName', 'materialId', 'materialDescription', 'ca', 'quantity', 'minimumStock', 'unit', 'lowStockAlertSent', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['id', 'companyId', 'obraId', 'obraName', 'materialId', 'materialDescription', 'ca', 'quantity', 'minimumStock', 'unit', 'lowStockAlertSent', 'lastLowStockAlertAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'companyId', 'obraId', 'obraName', 'materialId', 'materialDescription', 'ca', 'quantity', 'minimumStock', 'unit', 'lowStockAlertSent', 'lastLowStockAlertAt', 'lastMovementId', 'createdAt', 'updatedAt'])
         && data.id == stockId
         && stockId == data.obraId + '__' + data.materialId
         && data.companyId is string && data.companyId.size() > 0
@@ -158,7 +158,39 @@ service cloud.firestore {
         && data.minimumStock is int && data.minimumStock >= 0 && data.minimumStock <= 999999
         && data.unit is string && data.unit.size() > 0 && data.unit.size() <= 12
         && data.lowStockAlertSent is bool
-        && (!('lastLowStockAlertAt' in data) || (data.lastLowStockAlertAt is string && data.lastLowStockAlertAt.size() <= 50));
+        && (!('lastLowStockAlertAt' in data) || (data.lastLowStockAlertAt is string && data.lastLowStockAlertAt.size() <= 50))
+        && (!('lastMovementId' in data) || (data.lastMovementId is string && data.lastMovementId.size() > 0 && data.lastMovementId.size() <= 400));
+    }
+
+    // ===== Etapa 2: auxiliares de operações (recebimento, transferência, devolução, inventário) =====
+    // Administradores podem ajustar sempre; almoxarifes somente com canAdjustStock == true (definido pelo admin).
+    function canAdjustStock() {
+      return hasProfile()
+        && (isAdmin() || profile().data.get('canAdjustStock', false) == true);
+    }
+
+    function isIsoDate(value) {
+      return value is string && value.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    function shortText(value, max) {
+      return value is string && value.size() > 0 && value.size() <= max;
+    }
+
+    // Usa apenas get(): documento ausente derruba a regra (negação), sem gastar uma chamada exists().
+    function obraRefOk(obraId, companyId, obraName) {
+      return obraId is string
+        && get(/databases/$(database)/documents/obras/$(obraId)).data.companyId == companyId
+        && get(/databases/$(database)/documents/obras/$(obraId)).data.name == obraName;
+    }
+
+    // ID determinístico da movimentação de uma operação: liga estoque, movimentação e operação.
+    function operationMovementId(operationId, obraId, materialId) {
+      return operationId + '__' + obraId + '__' + materialId;
+    }
+
+    function stockPath(obraId, materialId) {
+      return /databases/$(database)/documents/inventoryStock/$(obraId + '__' + materialId);
     }
 
     function hasActiveTemporaryAccess(employeeId, serviceObraId, assignmentId) {
@@ -172,6 +204,66 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/temporaryAssignments/$(assignmentId)).data.endsAt >= request.time;
     }
 
+    // Movimentação de operação: o documento da operação deve existir na mesma transação (getAfter),
+    // pertencer à mesma empresa/obra/material e ter sido criado pelo mesmo usuário. O saldo anterior
+    // informado precisa ser o saldo real (get lê o estado antes da transação).
+    function validOperationMovement(data) {
+      return get(stockPath(data.obraId, data.materialId)).data.quantity == data.balanceBefore
+        && (
+          (data.operationType == 'RECEIPT' && validReceiptMovement(data))
+          || (data.operationType == 'TRANSFER' && validTransferMovement(data))
+          || (data.operationType == 'RETURN' && validReturnMovement(data))
+          || (data.operationType == 'INVENTORY' && validInventoryMovement(data))
+        );
+    }
+
+    function validReceiptMovement(data) {
+      let r = getAfter(/databases/$(database)/documents/receipts/$(data.operationId)).data;
+      return data.type == 'ENTRY' && data.quantity > 0
+        && r.companyId == data.companyId && r.obraId == data.obraId && r.materialId == data.materialId
+        && r.quantity == data.quantity && r.createdBy == request.auth.uid && r.movementId == data.id;
+    }
+
+    function validTransferMovement(data) {
+      let t = getAfter(/databases/$(database)/documents/transfers/$(data.operationId)).data;
+      return data.type == 'TRANSFER'
+        && t.companyId == data.companyId && t.materialId == data.materialId
+        && t.status == 'CONCLUIDA' && t.confirmedBy == request.auth.uid
+        && (
+          (data.quantity < 0 && t.fromObraId == data.obraId && t.outMovementId == data.id && t.quantity == -data.quantity)
+          || (data.quantity > 0 && t.toObraId == data.obraId && t.inMovementId == data.id && t.quantity == data.quantity)
+        );
+    }
+
+    function validReturnMovement(data) {
+      let r = getAfter(/databases/$(database)/documents/returns/$(data.operationId)).data;
+      return data.type == 'RETURN' && data.quantity > 0
+        && r.companyId == data.companyId && r.obraId == data.obraId && r.materialId == data.materialId
+        && r.quantity == data.quantity && r.restocked == true && r.movementId == data.id
+        && (
+          (r.status == 'REGISTRADA' && r.receivedBy == request.auth.uid)
+          || (r.status == 'INSPECIONADA' && r.resolvedBy == request.auth.uid)
+        );
+    }
+
+    function validInventoryMovement(data) {
+      let i = getAfter(/databases/$(database)/documents/inventoryCountItems/$(data.operationId + '__' + data.materialId)).data;
+      return data.type == 'ADJUSTMENT' && canAdjustStock()
+        && i.companyId == data.companyId && i.obraId == data.obraId && i.materialId == data.materialId
+        && i.status == 'AJUSTADO' && i.movementId == data.id && i.adjustedBy == request.auth.uid
+        && i.difference == data.quantity
+        && i.balanceBefore == data.balanceBefore && i.balanceAfter == data.balanceAfter;
+    }
+
+    function validIncreaseMovement(before, after) {
+      let m = getAfter(/databases/$(database)/documents/stockMovements/$(after.lastMovementId)).data;
+      return m.companyId == after.companyId && m.obraId == after.obraId && m.materialId == after.materialId
+        && m.balanceBefore == before.quantity && m.balanceAfter == after.quantity
+        && m.createdBy == request.auth.uid
+        && ('operationType' in m)
+        && m.type in ['ENTRY', 'TRANSFER', 'RETURN', 'ADJUSTMENT'];
+    }
+
     function validStockMovement(data, movementId) {
       return data.keys().hasAll([
           'id', 'companyId', 'obraId', 'obraName', 'materialId',
@@ -181,7 +273,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'id', 'companyId', 'obraId', 'obraName', 'materialId',
           'materialDescription', 'type', 'quantity', 'balanceBefore',
-          'balanceAfter', 'deliveryId', 'notes', 'createdAt', 'createdBy'
+          'balanceAfter', 'deliveryId', 'notes', 'operationType', 'operationId', 'createdAt', 'createdBy'
         ])
         && data.id == movementId
         && data.createdBy == request.auth.uid
@@ -196,9 +288,20 @@ service cloud.firestore {
         && data.balanceAfter == data.balanceBefore + data.quantity
         && data.createdAt is string && data.createdAt.size() <= 50
         && (!('notes' in data) || (data.notes is string && data.notes.size() <= 300))
+        && (('operationType' in data) == ('operationId' in data))
+        && (!('operationType' in data) || (
+          data.operationType in ['RECEIPT', 'TRANSFER', 'RETURN', 'INVENTORY']
+          && data.operationId is string && data.operationId.size() > 0 && data.operationId.size() <= 64
+          && data.id == operationMovementId(data.operationId, data.obraId, data.materialId)
+        ))
         && getAfter(/databases/$(database)/documents/inventoryStock/$(data.obraId + '__' + data.materialId)).data.quantity == data.balanceAfter
         && (
           (isAdmin() && data.type != 'EPI_DELIVERY')
+          || (
+            'operationType' in data
+            && data.type in ['ENTRY', 'TRANSFER', 'RETURN', 'ADJUSTMENT']
+            && validOperationMovement(data)
+          )
           || (
             data.type == 'EPI_DELIVERY'
             && data.quantity < 0
@@ -281,6 +384,8 @@ service cloud.firestore {
             && request.resource.data.companyId == get(/databases/$(database)/documents/invitations/$(request.auth.token.email)).data.companyId
             && request.resource.data.role == get(/databases/$(database)/documents/invitations/$(request.auth.token.email)).data.role
             && request.resource.data.assignedObraIds == get(/databases/$(database)/documents/invitations/$(request.auth.token.email)).data.assignedObraIds
+            // Etapa 2: o convidado não pode se auto-conceder permissão de ajuste de estoque.
+            && !('canAdjustStock' in request.resource.data)
           )
         );
 
@@ -448,11 +553,23 @@ service cloud.firestore {
           hasProfile()
           && sameCompany(resource.data)
           && canAccessObra(resource.data.obraId)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['quantity', 'lowStockAlertSent', 'lastLowStockAlertAt', 'updatedAt'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['quantity', 'lowStockAlertSent', 'lastLowStockAlertAt', 'lastMovementId', 'updatedAt'])
           && request.resource.data.quantity is int
           && request.resource.data.quantity >= 0
           && request.resource.data.quantity <= resource.data.quantity
           && validInventory(request.resource.data, stockId)
+        ) || (
+          // Etapa 2: AUMENTO de saldo por almoxarife só com a movimentação correspondente na mesma transação.
+          hasProfile()
+          && sameCompany(resource.data)
+          && canAccessObra(resource.data.obraId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['quantity', 'lowStockAlertSent', 'lastLowStockAlertAt', 'lastMovementId', 'updatedAt'])
+          && request.resource.data.quantity is int
+          && request.resource.data.quantity > resource.data.quantity
+          && request.resource.data.quantity <= 999999
+          && request.resource.data.lastMovementId is string
+          && validInventory(request.resource.data, stockId)
+          && validIncreaseMovement(resource.data, request.resource.data)
         );
       allow delete: if false;
     }
@@ -592,6 +709,346 @@ service cloud.firestore {
         && request.resource.data.id == deliveryId
         && validDelivery(request.resource.data);
       allow update, delete: if false;
+    }
+
+    // ===== Etapa 2: recebimentos =====
+    function validReceipt(data, receiptId) {
+      return data.keys().hasAll([
+          'id', 'companyId', 'obraId', 'obraName', 'materialId', 'materialDescription', 'quantity', 'unit',
+          'receivedAt', 'balanceBefore', 'balanceAfter', 'movementId', 'status', 'createdAt', 'createdBy', 'createdByName'
+        ])
+        && data.keys().hasOnly([
+          'id', 'companyId', 'obraId', 'obraName', 'materialId', 'materialDescription', 'quantity', 'unit',
+          'receivedAt', 'supplier', 'invoiceNumber', 'lot', 'expiresAt', 'notes', 'balanceBefore', 'balanceAfter',
+          'movementId', 'status', 'createdAt', 'createdBy', 'createdByName'
+        ])
+        && data.id == receiptId && receiptId.size() <= 64
+        && data.companyId == profile().data.companyId
+        && data.createdBy == request.auth.uid
+        && shortText(data.createdByName, 100)
+        && canAccessObra(data.obraId)
+        && obraRefOk(data.obraId, data.companyId, data.obraName)
+        && shortText(data.materialId, 128)
+        && shortText(data.materialDescription, 200)
+        && shortText(data.unit, 12)
+        && data.quantity is int && data.quantity >= 1 && data.quantity <= 999999
+        && data.balanceBefore is int && data.balanceBefore >= 0
+        && data.balanceAfter == data.balanceBefore + data.quantity && data.balanceAfter <= 999999
+        && data.status == 'CONCLUIDA'
+        && data.movementId == operationMovementId(data.id, data.obraId, data.materialId)
+        && isIsoDate(data.receivedAt)
+        && shortText(data.createdAt, 50)
+        && (!('supplier' in data) || shortText(data.supplier, 120))
+        && (!('invoiceNumber' in data) || shortText(data.invoiceNumber, 60))
+        && (!('lot' in data) || shortText(data.lot, 60))
+        && (!('expiresAt' in data) || isIsoDate(data.expiresAt))
+        && (!('notes' in data) || shortText(data.notes, 300))
+        && existsAfter(/databases/$(database)/documents/stockMovements/$(data.movementId))
+        && getAfter(stockPath(data.obraId, data.materialId)).data.quantity == data.balanceAfter;
+    }
+
+    // ===== Etapa 2: transferências entre obras =====
+    // Decisão aprovada: o usuário precisa ter acesso às DUAS obras para solicitar e confirmar.
+    function validTransferCreate(data, transferId) {
+      return data.keys().hasAll([
+          'id', 'companyId', 'fromObraId', 'fromObraName', 'toObraId', 'toObraName', 'materialId',
+          'materialDescription', 'quantity', 'unit', 'status', 'requestedBy', 'requestedByName', 'requestedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'companyId', 'fromObraId', 'fromObraName', 'toObraId', 'toObraName', 'materialId',
+          'materialDescription', 'quantity', 'unit', 'status', 'requestedBy', 'requestedByName', 'requestedAt',
+          'notes', 'correctsTransferId'
+        ])
+        && data.id == transferId && transferId.size() <= 64
+        && data.companyId == profile().data.companyId
+        && data.status == 'PENDENTE'
+        && data.requestedBy == request.auth.uid
+        && shortText(data.requestedByName, 100)
+        && data.fromObraId is string && data.toObraId is string && data.fromObraId != data.toObraId
+        && canAccessObra(data.fromObraId) && canAccessObra(data.toObraId)
+        && obraRefOk(data.fromObraId, data.companyId, data.fromObraName)
+        && obraRefOk(data.toObraId, data.companyId, data.toObraName)
+        && shortText(data.materialId, 128)
+        && shortText(data.materialDescription, 200)
+        && shortText(data.unit, 12)
+        && data.quantity is int && data.quantity >= 1 && data.quantity <= 999999
+        && shortText(data.requestedAt, 50)
+        && (!('notes' in data) || shortText(data.notes, 300))
+        && (!('correctsTransferId' in data) || (
+          data.correctsTransferId is string
+          && ('notes' in data) && data.notes.size() >= 5
+          && get(/databases/$(database)/documents/transfers/$(data.correctsTransferId)).data.companyId == data.companyId
+          && get(/databases/$(database)/documents/transfers/$(data.correctsTransferId)).data.status == 'CONCLUIDA'
+        ));
+    }
+
+    function validTransferConfirm(before, after, transferId) {
+      return canAccessObra(before.fromObraId) && canAccessObra(before.toObraId)
+        && after.diff(before).affectedKeys().hasOnly(['status', 'confirmedBy', 'confirmedByName', 'confirmedAt', 'outMovementId', 'inMovementId'])
+        && after.status == 'CONCLUIDA'
+        && after.confirmedBy == request.auth.uid
+        && shortText(after.confirmedByName, 100)
+        && shortText(after.confirmedAt, 50)
+        && after.outMovementId == operationMovementId(transferId, before.fromObraId, before.materialId)
+        && after.inMovementId == operationMovementId(transferId, before.toObraId, before.materialId)
+        && existsAfter(/databases/$(database)/documents/stockMovements/$(after.outMovementId))
+        && existsAfter(/databases/$(database)/documents/stockMovements/$(after.inMovementId));
+    }
+
+    function validTransferCancel(before, after) {
+      return after.diff(before).affectedKeys().hasOnly(['status', 'cancelledBy', 'cancelledByName', 'cancelledAt', 'cancelReason'])
+        && after.status == 'CANCELADA'
+        && (before.requestedBy == request.auth.uid || canAccessObra(before.fromObraId))
+        && after.cancelledBy == request.auth.uid
+        && shortText(after.cancelledByName, 100)
+        && shortText(after.cancelledAt, 50)
+        && after.cancelReason is string && after.cancelReason.size() >= 5 && after.cancelReason.size() <= 300;
+    }
+
+    // ===== Etapa 2: devoluções =====
+    function validReturnDeliveryLink(data) {
+      let d = get(/databases/$(database)/documents/deliveries/$(data.deliveryId)).data;
+      let l = getAfter(/databases/$(database)/documents/returnLedger/$(data.deliveryId + '__' + data.materialId)).data;
+      return data.deliveryItemIndex is int && data.deliveryItemIndex >= 0 && data.deliveryItemIndex < 5
+        && d.companyId == data.companyId && d.employeeId == data.employeeId && d.stockObraId == data.obraId
+        && d.items[data.deliveryItemIndex].materialId == data.materialId
+        && d.items[data.deliveryItemIndex].quantity == l.delivered
+        && l.lastReturnId == data.id && l.returned <= l.delivered;
+    }
+
+    function validReturn(data, returnId) {
+      let isBom = data.condition == 'BOM_ESTADO';
+      let e = get(/databases/$(database)/documents/employees/$(data.employeeId)).data;
+      return data.keys().hasAll([
+          'id', 'companyId', 'obraId', 'obraName', 'employeeId', 'employeeName', 'materialId', 'materialDescription',
+          'quantity', 'condition', 'status', 'returnedAt', 'receivedBy', 'receivedByName', 'restocked', 'createdAt', 'createdBy'
+        ])
+        && data.keys().hasOnly([
+          'id', 'companyId', 'obraId', 'obraName', 'employeeId', 'employeeName', 'deliveryId', 'deliveryItemIndex',
+          'materialId', 'materialDescription', 'quantity', 'condition', 'status', 'returnedAt', 'receivedBy',
+          'receivedByName', 'notes', 'restocked', 'movementId', 'balanceBefore', 'balanceAfter', 'createdAt', 'createdBy'
+        ])
+        && data.id == returnId && returnId.size() <= 64
+        && data.companyId == profile().data.companyId
+        && data.createdBy == request.auth.uid && data.receivedBy == request.auth.uid
+        && shortText(data.receivedByName, 100)
+        && canAccessObra(data.obraId)
+        && obraRefOk(data.obraId, data.companyId, data.obraName)
+        && e.companyId == data.companyId && e.name == data.employeeName
+        && shortText(data.materialId, 128)
+        && shortText(data.materialDescription, 200)
+        && data.quantity is int && data.quantity >= 1 && data.quantity <= 9999
+        && data.condition in ['BOM_ESTADO', 'DANIFICADO', 'INSERVIVEL', 'PENDENTE_INSPECAO']
+        && data.status == 'REGISTRADA'
+        && isIsoDate(data.returnedAt)
+        && shortText(data.createdAt, 50)
+        && (!('notes' in data) || shortText(data.notes, 300))
+        && (data.condition != 'INSERVIVEL' || (('notes' in data) && data.notes.size() >= 5))
+        && data.restocked == isBom
+        && (!isBom || (
+          data.movementId == operationMovementId(data.id, data.obraId, data.materialId)
+          && data.balanceBefore is int && data.balanceBefore >= 0
+          && data.balanceAfter == data.balanceBefore + data.quantity && data.balanceAfter <= 999999
+          && existsAfter(/databases/$(database)/documents/stockMovements/$(data.movementId))
+          && getAfter(stockPath(data.obraId, data.materialId)).data.quantity == data.balanceAfter
+        ))
+        && (isBom || (!('movementId' in data) && !('balanceBefore' in data) && !('balanceAfter' in data)))
+        && (('deliveryId' in data) == ('deliveryItemIndex' in data))
+        && (!('deliveryId' in data) || validReturnDeliveryLink(data));
+    }
+
+    function validReturnInspection(before, after) {
+      let toStock = after.resolution == 'BOM_ESTADO';
+      return after.diff(before).affectedKeys().hasOnly([
+          'status', 'resolution', 'resolvedBy', 'resolvedByName', 'resolvedAt', 'resolutionNotes',
+          'restocked', 'movementId', 'balanceBefore', 'balanceAfter'
+        ])
+        && after.status == 'INSPECIONADA'
+        && after.resolution in ['BOM_ESTADO', 'DANIFICADO', 'INSERVIVEL']
+        && after.resolvedBy == request.auth.uid
+        && shortText(after.resolvedByName, 100)
+        && shortText(after.resolvedAt, 50)
+        && (!('resolutionNotes' in after) || shortText(after.resolutionNotes, 300))
+        && (after.resolution != 'INSERVIVEL' || (('resolutionNotes' in after) && after.resolutionNotes.size() >= 5))
+        && after.restocked == toStock
+        && (!toStock || (
+          after.movementId == operationMovementId(before.id, before.obraId, before.materialId)
+          && after.balanceBefore is int && after.balanceBefore >= 0
+          && after.balanceAfter == after.balanceBefore + before.quantity && after.balanceAfter <= 999999
+          && existsAfter(/databases/$(database)/documents/stockMovements/$(after.movementId))
+          && getAfter(stockPath(before.obraId, before.materialId)).data.quantity == after.balanceAfter
+        ))
+        && (toStock || (!('movementId' in after) && !('balanceBefore' in after) && !('balanceAfter' in after)));
+    }
+
+    function validReturnLedger(data, ledgerId) {
+      let r = getAfter(/databases/$(database)/documents/returns/$(data.lastReturnId)).data;
+      return data.keys().hasAll(['id', 'companyId', 'obraId', 'deliveryId', 'materialId', 'delivered', 'returned', 'lastReturnId', 'updatedAt', 'updatedBy'])
+        && data.keys().hasOnly(['id', 'companyId', 'obraId', 'deliveryId', 'materialId', 'delivered', 'returned', 'lastReturnId', 'updatedAt', 'updatedBy'])
+        && data.id == ledgerId
+        && ledgerId == data.deliveryId + '__' + data.materialId
+        && data.companyId == profile().data.companyId
+        && canAccessObra(data.obraId)
+        && data.updatedBy == request.auth.uid
+        && shortText(data.updatedAt, 50)
+        && data.delivered is int && data.delivered >= 1 && data.delivered <= 9999
+        && data.returned is int && data.returned >= 1 && data.returned <= data.delivered
+        && data.lastReturnId is string
+        && r.companyId == data.companyId && r.obraId == data.obraId
+        && r.deliveryId == data.deliveryId && r.materialId == data.materialId;
+    }
+
+    // ===== Etapa 2: inventário físico =====
+    function validCountCreate(data, countId) {
+      return data.keys().hasAll(['id', 'companyId', 'obraId', 'obraName', 'countedAt', 'countedBy', 'countedByName', 'status', 'createdAt', 'createdBy', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'companyId', 'obraId', 'obraName', 'countedAt', 'countedBy', 'countedByName', 'status', 'createdAt', 'createdBy', 'updatedAt', 'closedBy', 'closedAt', 'cancelReason'])
+        && data.id == countId && countId.size() <= 64
+        && data.companyId == profile().data.companyId
+        && data.status == 'EM_CONTAGEM'
+        && data.countedBy == request.auth.uid && data.createdBy == request.auth.uid
+        && shortText(data.countedByName, 100)
+        && canAccessObra(data.obraId)
+        && obraRefOk(data.obraId, data.companyId, data.obraName)
+        && isIsoDate(data.countedAt)
+        && shortText(data.createdAt, 50) && shortText(data.updatedAt, 50)
+        && !('closedBy' in data) && !('closedAt' in data) && !('cancelReason' in data);
+    }
+
+    function validCountClose(before, after) {
+      return after.diff(before).affectedKeys().hasOnly(['status', 'closedBy', 'closedAt', 'cancelReason', 'updatedAt'])
+        && after.status in ['CONFIRMADA', 'CANCELADA']
+        && after.closedBy == request.auth.uid
+        && shortText(after.closedAt, 50) && shortText(after.updatedAt, 50)
+        && (after.status != 'CONFIRMADA' || (canAdjustStock() && !('cancelReason' in after)))
+        && (after.status != 'CANCELADA' || (after.cancelReason is string && after.cancelReason.size() >= 5 && after.cancelReason.size() <= 300));
+    }
+
+    function validJustification(data) {
+      return data.justification is string && data.justification.size() >= 5 && data.justification.size() <= 300;
+    }
+
+    function validCountItemCreate(data, itemId) {
+      let header = get(/databases/$(database)/documents/inventoryCounts/$(data.countId)).data;
+      return data.keys().hasAll([
+          'id', 'countId', 'companyId', 'obraId', 'materialId', 'materialDescription', 'unit', 'systemQty',
+          'countedQty', 'difference', 'status', 'countedBy', 'createdAt', 'createdBy'
+        ])
+        && data.keys().hasOnly([
+          'id', 'countId', 'companyId', 'obraId', 'materialId', 'materialDescription', 'unit', 'systemQty',
+          'countedQty', 'difference', 'justification', 'status', 'countedBy', 'createdAt', 'createdBy',
+          'balanceBefore', 'balanceAfter', 'movementId', 'adjustedBy', 'adjustedByName', 'adjustedAt'
+        ])
+        && itemId == data.countId + '__' + data.materialId && data.id == itemId
+        && data.companyId == profile().data.companyId
+        && data.createdBy == request.auth.uid && data.countedBy == request.auth.uid
+        && canAccessObra(data.obraId)
+        && header.companyId == data.companyId && header.obraId == data.obraId && header.status == 'EM_CONTAGEM'
+        && shortText(data.materialId, 128) && shortText(data.materialDescription, 200) && shortText(data.unit, 12)
+        && data.systemQty is int && data.systemQty >= 0 && data.systemQty <= 999999
+        && data.countedQty is int && data.countedQty >= 0 && data.countedQty <= 999999
+        && data.difference == data.countedQty - data.systemQty
+        && shortText(data.createdAt, 50)
+        && (!('justification' in data) || shortText(data.justification, 300))
+        && get(stockPath(data.obraId, data.materialId)).data.quantity == data.systemQty
+        && (
+          (
+            data.status == 'SEM_DIVERGENCIA' && data.difference == 0
+            && !('balanceBefore' in data) && !('balanceAfter' in data) && !('movementId' in data)
+            && !('adjustedBy' in data) && !('adjustedByName' in data) && !('adjustedAt' in data)
+          ) || (
+            data.status == 'PENDENTE_AJUSTE' && data.difference != 0 && validJustification(data)
+            && !('balanceBefore' in data) && !('balanceAfter' in data) && !('movementId' in data)
+            && !('adjustedBy' in data) && !('adjustedByName' in data) && !('adjustedAt' in data)
+          ) || (
+            data.status == 'AJUSTADO' && data.difference != 0 && validJustification(data) && canAdjustStock()
+            && data.movementId == operationMovementId(data.countId, data.obraId, data.materialId)
+            && data.balanceBefore == data.systemQty && data.balanceAfter == data.countedQty
+            && data.adjustedBy == request.auth.uid && shortText(data.adjustedByName, 100) && shortText(data.adjustedAt, 50)
+            && existsAfter(/databases/$(database)/documents/stockMovements/$(data.movementId))
+            && getAfter(stockPath(data.obraId, data.materialId)).data.quantity == data.countedQty
+          )
+        );
+    }
+
+    function validCountItemAdjust(before, after) {
+      return after.diff(before).affectedKeys().hasOnly(['status', 'balanceBefore', 'balanceAfter', 'movementId', 'adjustedBy', 'adjustedByName', 'adjustedAt'])
+        && after.status == 'AJUSTADO' && canAdjustStock()
+        && get(stockPath(before.obraId, before.materialId)).data.quantity == before.systemQty
+        && after.movementId == operationMovementId(before.countId, before.obraId, before.materialId)
+        && after.balanceBefore == before.systemQty && after.balanceAfter == before.countedQty
+        && after.adjustedBy == request.auth.uid && shortText(after.adjustedByName, 100) && shortText(after.adjustedAt, 50)
+        && existsAfter(/databases/$(database)/documents/stockMovements/$(after.movementId))
+        && getAfter(stockPath(before.obraId, before.materialId)).data.quantity == before.countedQty;
+    }
+
+    match /receipts/{receiptId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if hasProfile() && validReceipt(request.resource.data, receiptId);
+      allow update, delete: if false;
+    }
+
+    match /transfers/{transferId} {
+      allow read: if sameCompany(resource.data)
+        && (canAccessObra(resource.data.fromObraId) || canAccessObra(resource.data.toObraId));
+      allow create: if hasProfile() && validTransferCreate(request.resource.data, transferId);
+      // PENDENTE é o único estado editável; CONCLUIDA e CANCELADA são terminais.
+      allow update: if hasProfile()
+        && sameCompany(resource.data)
+        && resource.data.status == 'PENDENTE'
+        && request.resource.data.id == resource.data.id
+        && (
+          validTransferConfirm(resource.data, request.resource.data, transferId)
+          || validTransferCancel(resource.data, request.resource.data)
+        );
+      allow delete: if false;
+    }
+
+    match /returns/{returnId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if hasProfile() && validReturn(request.resource.data, returnId);
+      allow update: if hasProfile()
+        && sameCompany(resource.data)
+        && canAccessObra(resource.data.obraId)
+        && resource.data.status == 'REGISTRADA'
+        && resource.data.condition == 'PENDENTE_INSPECAO'
+        && validReturnInspection(resource.data, request.resource.data);
+      allow delete: if false;
+    }
+
+    match /returnLedger/{ledgerId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if hasProfile()
+        && validReturnLedger(request.resource.data, ledgerId)
+        && request.resource.data.returned == getAfter(/databases/$(database)/documents/returns/$(request.resource.data.lastReturnId)).data.quantity;
+      allow update: if hasProfile()
+        && sameCompany(resource.data)
+        && request.resource.data.obraId == resource.data.obraId
+        && request.resource.data.delivered == resource.data.delivered
+        && validReturnLedger(request.resource.data, ledgerId)
+        && request.resource.data.returned == resource.data.returned + getAfter(/databases/$(database)/documents/returns/$(request.resource.data.lastReturnId)).data.quantity;
+      allow delete: if false;
+    }
+
+    match /inventoryCounts/{countId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if hasProfile() && validCountCreate(request.resource.data, countId);
+      allow update: if hasProfile()
+        && sameCompany(resource.data)
+        && canAccessObra(resource.data.obraId)
+        && resource.data.status == 'EM_CONTAGEM'
+        && validCountClose(resource.data, request.resource.data);
+      allow delete: if false;
+    }
+
+    match /inventoryCountItems/{itemId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if hasProfile() && validCountItemCreate(request.resource.data, itemId);
+      allow update: if hasProfile()
+        && sameCompany(resource.data)
+        && canAccessObra(resource.data.obraId)
+        && resource.data.status == 'PENDENTE_AJUSTE'
+        && validCountItemAdjust(resource.data, request.resource.data);
+      allow delete: if false;
     }
 
     match /{document=**} {
