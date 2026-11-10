@@ -35,7 +35,7 @@ jobs:
           npm audit --json > audit-before.json || true
           node -e "const a=require('./audit-before.json'); console.log(JSON.stringify(a.metadata?.vulnerabilities ?? {}, null, 2))"
       - name: Apply compatible dependency fixes only
-        run: npm audit fix
+        run: npm audit fix || echo 'Some advisories require a major update or manual remediation; no forced update will be applied.'
       - name: Reinstall from updated lockfile
         run: npm ci
       - name: Production dependency audit
