@@ -433,7 +433,8 @@ service cloud.firestore {
     match /inventoryStock/{stockId} {
       allow list: if isAdmin()
         && resource.data.companyId == profile().data.companyId;
-      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow read: if (resource == null && isAdmin())
+        || (sameCompany(resource.data) && canAccessObra(resource.data.obraId));
       allow create: if isAdmin()
         && sameCompany(request.resource.data)
         && canAccessObra(request.resource.data.obraId)
