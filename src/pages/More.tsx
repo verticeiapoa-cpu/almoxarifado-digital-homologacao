@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { BellRing, Building2, ChevronRight, Shield, UserCog, UserRoundCheck } from 'lucide-react';
+import { BellRing, Building2, ChevronRight, Shield, UserCog, UserRoundCheck, ClipboardCheck } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 
 export default function More() {
@@ -10,6 +10,7 @@ export default function More() {
       { to: '/obras', label: 'Obras e Canteiros', description: 'Cadastro e situação das obras', icon: Building2 },
       { to: '/users', label: 'Almoxarifes e Usuários', description: 'Perfis, convites e permissões', icon: UserCog },
       { to: '/settings/stock-alerts', label: 'Alertas de estoque', description: 'Estoque mínimo e e-mail da gestão', icon: BellRing },
+      { to: '/inventory-count', label: 'Inventário físico', description: 'Conferência e ajuste auditável por obra', icon: ClipboardCheck },
     ] : []),
   ];
   return (
