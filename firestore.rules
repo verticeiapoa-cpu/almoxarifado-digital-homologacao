@@ -594,6 +594,33 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Stage 2 — auditable inbound stock receipts. A receipt can only be
+    // created by an administrator in the same atomic write as its stock increase
+    // and ENTRY movement (the movement rule verifies getAfter(stock)).
+    match /stockReceipts/{receiptId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if isAdmin()
+        && sameCompany(request.resource.data)
+        && canAccessObra(request.resource.data.obraId)
+        && request.resource.data.id == receiptId
+        && request.resource.data.stockId == request.resource.data.obraId + '__' + request.resource.data.materialId
+        && request.resource.data.materialId is string
+        && request.resource.data.materialDescription is string
+        && request.resource.data.quantity is int
+        && request.resource.data.quantity > 0
+        && request.resource.data.quantity <= 999999
+        && request.resource.data.balanceBefore is int
+        && request.resource.data.balanceBefore >= 0
+        && request.resource.data.balanceAfter == request.resource.data.balanceBefore + request.resource.data.quantity
+        && request.resource.data.reference is string
+        && request.resource.data.reference.size() > 0
+        && request.resource.data.reference.size() <= 80
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt is string
+        && getAfter(/databases/$(database)/documents/inventoryStock/$(request.resource.data.stockId)).data.quantity == request.resource.data.balanceAfter;
+      allow update, delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
