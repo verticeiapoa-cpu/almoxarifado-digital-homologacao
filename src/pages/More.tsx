@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowLeftRight, BellRing, Building2, ChevronRight, FileSpreadsheet, Shield, UserCog, UserRoundCheck } from 'lucide-react';
+import { ArrowLeftRight, BellRing, Building2, ChevronRight, ClipboardCheck, FileSpreadsheet, PackagePlus, Repeat, Shield, Undo2, UserCog, UserRoundCheck } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 
 export default function More() {
@@ -7,6 +7,10 @@ export default function More() {
   const links = [
     { to: '/materials', label: 'Estoque de EPIs', description: 'Catálogo e certificados de aprovação', icon: Shield },
     { to: '/movements', label: 'Movimentações', description: 'Entradas, entregas e ajustes por obra', icon: ArrowLeftRight },
+    { to: '/receipts', label: 'Recebimento', description: 'Entrada de material com NF, lote e validade', icon: PackagePlus },
+    { to: '/transfers', label: 'Transferências', description: 'Movimentação de material entre obras', icon: Repeat },
+    { to: '/returns', label: 'Devoluções', icon: Undo2, description: 'Devolução de EPI com condição do item' },
+    { to: '/inventory-count', label: 'Inventário físico', description: 'Contagem, divergências e ajustes', icon: ClipboardCheck },
     { to: '/reports', label: 'Relatórios', description: 'Posição de estoque e histórico em CSV', icon: FileSpreadsheet },
     ...(isAdmin ? [
       { to: '/obras', label: 'Obras e Canteiros', description: 'Cadastro e situação das obras', icon: Building2 },
