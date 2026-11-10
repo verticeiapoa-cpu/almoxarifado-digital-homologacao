@@ -613,6 +613,8 @@ service cloud.firestore {
         && request.resource.data.reason.size() >= 5 && request.resource.data.reason.size() <= 300
         && request.resource.data.balanceBefore is int && request.resource.data.balanceBefore >= 0
         && request.resource.data.balanceAfter is int && request.resource.data.balanceAfter >= 0
+        && get(/databases/$(database)/documents/inventoryStock/$(request.resource.data.stockId)).data.companyId == request.resource.data.companyId
+        && get(/databases/$(database)/documents/inventoryStock/$(request.resource.data.stockId)).data.quantity == request.resource.data.balanceBefore
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.createdAt is string
         && (
