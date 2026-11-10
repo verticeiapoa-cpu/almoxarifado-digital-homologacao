@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { ArrowLeftRight, ClipboardList, PackagePlus, RotateCcw, RefreshCw } from 'lucide-react';
 import { db } from '../lib/firebase';
@@ -81,7 +81,7 @@ export default function StockOperationsPage() {
     return amount;
   };
 
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); resetFeedback();
     if (!isAdmin || !profile || !user) { setError('Acesso restrito ao administrador nesta versão.'); return; }
     setSaving(true);
