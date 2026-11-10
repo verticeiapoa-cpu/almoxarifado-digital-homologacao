@@ -204,3 +204,22 @@ export interface Delivery {
   updatedAt: string;
   createdBy: string;
 }
+
+
+export interface InventoryCount {
+  id: string;
+  companyId: string;
+  obraId: string;
+  obraName: string;
+  stockId: string;
+  materialId: string;
+  materialDescription: string;
+  ca: string;
+  unit: string;
+  systemQuantity: number;
+  countedQuantity: number;
+  difference: number;
+  reason: string;
+  createdAt: string;
+  createdBy: string;
+}
