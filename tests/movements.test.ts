@@ -78,4 +78,11 @@ describe('formatação', () => {
     expect(responsibleLabel('uid-abcdef123456', names)).toBe('Usuário …123456');
     expect(responsibleLabel(null, names)).toBe('');
   });
+
+  it('Etapa 2: lê operationType/operationId e ignora valores desconhecidos', () => {
+    const base = { companyId: 'c', obraId: 'o', type: 'ENTRY', quantity: 1 };
+    expect(normalizeMovement('m1', { ...base, operationType: 'RECEIPT', operationId: 'r1' })).toMatchObject({ operationType: 'RECEIPT', operationId: 'r1' });
+    expect(normalizeMovement('m2', { ...base, operationType: 'XYZ' })).toMatchObject({ operationType: null, operationId: null });
+    expect(normalizeMovement('m3', base)).toMatchObject({ operationType: null });
+  });
 });

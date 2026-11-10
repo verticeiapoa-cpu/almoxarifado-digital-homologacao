@@ -31,6 +31,9 @@ export interface MovementView {
   note: string | null;
   createdAt: string | null;
   createdBy: string | null;
+  // Etapa 2: operação que originou a movimentação (recebimento, transferência, devolução, inventário).
+  operationType: 'RECEIPT' | 'TRANSFER' | 'RETURN' | 'INVENTORY' | null;
+  operationId: string | null;
   // true quando o documento usa o formato antigo (movementType/previousBalance/newBalance).
   legacy: boolean;
 }
@@ -74,9 +77,14 @@ export function normalizeMovement(id: string, raw: Record<string, unknown>): Mov
     note: str(raw.notes) ?? str(raw.reason),
     createdAt: timestampToIso(raw.createdAt),
     createdBy: str(raw.createdBy) ?? str(raw.requestedBy),
+    operationType: ['RECEIPT', 'TRANSFER', 'RETURN', 'INVENTORY'].includes(String(raw.operationType)) ? raw.operationType as MovementView['operationType'] : null,
+    operationId: str(raw.operationId),
     legacy,
   };
 }
+
+export const OPERATION_LABEL = { RECEIPT: 'Recebimento', TRANSFER: 'Transferência', RETURN: 'Devolução', INVENTORY: 'Inventário' } as const;
+export const OPERATION_ROUTE = { RECEIPT: '/receipts', TRANSFER: '/transfers', RETURN: '/returns', INVENTORY: '/inventory-count' } as const;
 
 export function sortMovementsDesc(rows: MovementView[]): MovementView[] {
   return [...rows].sort((a, b) => {

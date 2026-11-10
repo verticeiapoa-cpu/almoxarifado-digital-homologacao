@@ -9,14 +9,24 @@ import {
   STOCK_COLUMNS, buildDataScope, movementColumns, needsReplenishment, sortStockRows, type StockRow,
 } from '../lib/reports';
 import { STOCK_LEVEL_LABEL, stockLevel } from '../lib/stockStatus';
+import { fetchCountItems, fetchReceipts, fetchReturns, fetchTransfers } from '../lib/operationData';
+import { COUNT_ITEM_COLUMNS, RECEIPT_COLUMNS, RETURN_COLUMNS, TRANSFER_COLUMNS, filterCountItems, filterReceipts, filterReturns, filterTransfers } from '../lib/operationReports';
+import type { InventoryCountItem, Receipt, ReturnRecord, Transfer } from '../types';
 import { formatBalance, formatDateTime, formatSignedQuantity, periodBounds, type MovementView } from '../lib/movements';
 
-type ReportKind = 'stock-position' | 'stock-replenishment' | 'movements';
+type OperationKind = 'receipts' | 'transfers' | 'returns' | 'inventories' | 'adjustments';
+type ReportKind = 'stock-position' | 'stock-replenishment' | 'movements' | OperationKind;
+const isOperation = (kind: ReportKind): kind is OperationKind => ['receipts', 'transfers', 'returns', 'inventories', 'adjustments'].includes(kind);
 
 const REPORTS: Array<{ kind: ReportKind; title: string; description: string }> = [
   { kind: 'stock-position', title: 'Posição de estoque', description: 'Saldo, mínimo, unidade e situação de cada item por obra.' },
   { kind: 'stock-replenishment', title: 'Itens para reposição', description: 'Somente itens sem saldo, críticos ou abaixo do mínimo.' },
   { kind: 'movements', title: 'Histórico de movimentações', description: 'Entradas, entregas e ajustes no período escolhido.' },
+  { kind: 'receipts', title: 'Recebimentos', description: 'Entradas com fornecedor, NF, lote e validade.' },
+  { kind: 'transfers', title: 'Transferências', description: 'Pendentes, concluídas e canceladas entre obras.' },
+  { kind: 'returns', title: 'Devoluções', description: 'Condição do item, estoque, danificados e pendentes.' },
+  { kind: 'inventories', title: 'Inventários', description: 'Contagens, divergências e justificativas.' },
+  { kind: 'adjustments', title: 'Ajustes de estoque', description: 'Somente divergências efetivamente ajustadas.' },
 ];
 
 const MAX_MOVEMENTS = 2000;
@@ -29,6 +39,7 @@ interface Generated {
   selection: string;
   stocks?: StockRow[];
   movements?: MovementView[];
+  receipts?: Receipt[]; transfers?: Transfer[]; returns?: ReturnRecord[]; counts?: InventoryCountItem[];
   names: Map<string, string>;
   truncated: boolean;
   unordered: boolean;
@@ -57,7 +68,13 @@ export default function Reports() {
     setError('');
     setGenerated(null);
     try {
-      if (kind === 'movements') {
+      if (isOperation(kind)) {
+        const f = { fromDate: from, toDate: to };
+        if (kind === 'receipts') { const r = await fetchReceipts(db, scope, selection); setGenerated({ kind, selection, receipts: filterReceipts(r.rows, scope, f), names: new Map(), truncated: r.truncated, unordered: false }); }
+        else if (kind === 'transfers') { const r = await fetchTransfers(db, scope, selection); setGenerated({ kind, selection, transfers: filterTransfers(r.rows, scope, f), names: new Map(), truncated: r.truncated, unordered: false }); }
+        else if (kind === 'returns') { const r = await fetchReturns(db, scope, selection); setGenerated({ kind, selection, returns: filterReturns(r.rows, scope, f), names: new Map(), truncated: r.truncated, unordered: false }); }
+        else { const r = await fetchCountItems(db, scope, selection); setGenerated({ kind, selection, counts: filterCountItems(r.rows, scope, f, kind === 'adjustments'), names: new Map(), truncated: r.truncated, unordered: false }); }
+      } else if (kind === 'movements') {
         const bounds = periodBounds(from, to);
         const [result, names] = await Promise.all([
           fetchMovements(db, scope, selection, { ...bounds, max: MAX_MOVEMENTS }),
@@ -80,13 +97,17 @@ export default function Reports() {
     if (!generated) return;
     const where = generated.selection === 'ALL' ? 'todas-as-obras' : obraName.get(generated.selection) || 'obra';
     const title = REPORTS.find(report => report.kind === generated.kind)!.title;
-    const csv = generated.movements
+    const csv = generated.receipts ? buildCsv(RECEIPT_COLUMNS, generated.receipts)
+      : generated.transfers ? buildCsv(TRANSFER_COLUMNS, generated.transfers)
+      : generated.returns ? buildCsv(RETURN_COLUMNS, generated.returns)
+      : generated.counts ? buildCsv(COUNT_ITEM_COLUMNS, generated.counts)
+      : generated.movements
       ? buildCsv(movementColumns(generated.names, obraName, user?.uid), generated.movements)
       : buildCsv(STOCK_COLUMNS, generated.stocks ?? []);
     downloadCsv(csvFilename(`${title} ${where}`), csv);
   };
 
-  const rowCount = generated ? (generated.movements?.length ?? generated.stocks?.length ?? 0) : 0;
+  const rowCount = generated ? (generated.movements ?? generated.stocks ?? generated.receipts ?? generated.transfers ?? generated.returns ?? generated.counts ?? []).length : 0;
 
   return (
     <div className="flex flex-col gap-5">
@@ -112,7 +133,7 @@ export default function Reports() {
               {(scope.isAdmin || scope.obraIds.length > 1) && <option value="ALL">{scope.isAdmin ? 'Todas as obras' : 'Todas as minhas obras'}</option>}
               {obras.filter(obra => scope.obraIds.includes(obra.id)).map(obra => <option key={obra.id} value={obra.id}>{obra.name}{obra.isActive ? '' : ' (inativa)'}</option>)}
             </select></div>
-          {kind === 'movements' && <div className="grid grid-cols-2 gap-2 sm:col-span-2">
+          {(kind === 'movements' || isOperation(kind)) && <div className="grid grid-cols-2 gap-2 sm:col-span-2">
             <div><label className="field-label" htmlFor="rep-from">De</label><input id="rep-from" type="date" className="field-control" value={from} max={to || undefined} onChange={event => { setFrom(event.target.value); setGenerated(null); }} /></div>
             <div><label className="field-label" htmlFor="rep-to">Até</label><input id="rep-to" type="date" className="field-control" value={to} min={from || undefined} onChange={event => { setTo(event.target.value); setGenerated(null); }} /></div>
           </div>}
@@ -131,7 +152,15 @@ export default function Reports() {
           </div>
           {rowCount === 0 ? <div className="empty-card"><FileSpreadsheet /><strong>Nenhum dado para este relatório</strong><span>Altere a obra, o período ou o tipo de relatório.</span></div> : (
             <div className="panel-card"><div className="overflow-x-auto"><table className="w-full text-sm text-left">
-              {generated.movements ? <>
+              {generated.receipts || generated.transfers || generated.returns || generated.counts ? <>
+                <thead className="bg-slate-50 text-slate-500 border-b border-slate-200"><tr><th className="px-4 py-3">Data</th><th className="px-4 py-3">Obra</th><th className="px-4 py-3">Item</th><th className="px-4 py-3 text-right">Qtd.</th><th className="px-4 py-3">Situação</th></tr></thead>
+                <tbody className="divide-y divide-slate-200">{[
+                  ...(generated.receipts ?? []).map(r => ({ id: r.id, date: r.receivedAt, obra: r.obraName, item: r.materialDescription, qty: r.quantity, status: 'Recebido' })),
+                  ...(generated.transfers ?? []).map(t => ({ id: t.id, date: t.requestedAt.slice(0, 10), obra: `${t.fromObraName} → ${t.toObraName}`, item: t.materialDescription, qty: t.quantity, status: t.status })),
+                  ...(generated.returns ?? []).map(r => ({ id: r.id, date: r.returnedAt, obra: r.obraName, item: r.materialDescription, qty: r.quantity, status: `${r.condition}${r.restocked ? ' (estoque)' : ''}` })),
+                  ...(generated.counts ?? []).map(i => ({ id: i.id, date: i.createdAt.slice(0, 10), obra: obraName.get(i.obraId) ?? i.obraId, item: i.materialDescription, qty: i.difference, status: i.status })),
+                ].slice(0, PREVIEW_ROWS).map(row => <tr key={row.id}><td className="px-4 py-3 whitespace-nowrap">{row.date}</td><td className="px-4 py-3">{row.obra}</td><td className="px-4 py-3">{row.item}</td><td className="px-4 py-3 text-right">{row.qty}</td><td className="px-4 py-3">{row.status}</td></tr>)}</tbody>
+              </> : generated.movements ? <>
                 <thead className="bg-slate-50 text-slate-500 border-b border-slate-200"><tr><th className="px-4 py-3">Data/hora</th><th className="px-4 py-3">Obra</th><th className="px-4 py-3">Item</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3 text-right">Qtd.</th><th className="px-4 py-3">Saldo</th></tr></thead>
                 <tbody className="divide-y divide-slate-200">{generated.movements.slice(0, PREVIEW_ROWS).map(row => (
                   <tr key={row.id}><td className="px-4 py-3 whitespace-nowrap">{formatDateTime(row.createdAt) || '—'}</td><td className="px-4 py-3">{row.obraName ?? obraName.get(row.obraId) ?? row.obraId}</td><td className="px-4 py-3">{row.materialDescription || '—'}</td><td className="px-4 py-3">{row.typeLabel}</td><td className="px-4 py-3 text-right">{formatSignedQuantity(row.quantity) || '—'}</td><td className="px-4 py-3 whitespace-nowrap">{formatBalance(row) || '—'}</td></tr>

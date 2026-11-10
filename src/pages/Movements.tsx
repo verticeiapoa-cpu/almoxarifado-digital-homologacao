@@ -7,7 +7,7 @@ import { logError } from '../lib/logger';
 import { fetchMovements, fetchUserNames, type MovementResult } from '../lib/reportData';
 import { buildDataScope } from '../lib/reports';
 import {
-  MOVEMENT_TYPE_LABEL, filterMovements, formatBalance, formatDateTime, formatSignedQuantity,
+  MOVEMENT_TYPE_LABEL, OPERATION_LABEL, OPERATION_ROUTE, filterMovements, formatBalance, formatDateTime, formatSignedQuantity,
   periodBounds, responsibleLabel, type MovementType, type MovementView,
 } from '../lib/movements';
 import { MovementTypeBadge } from '../components/StockUi';
@@ -130,6 +130,7 @@ export default function Movements() {
                   <span className={qtyClass(row.quantity)}>{formatSignedQuantity(row.quantity) || '—'}</span>
                   <span className="text-slate-600">Saldo: {formatBalance(row) || '—'}</span>
                 </div>
+                {row.operationType && <small><Link to={OPERATION_ROUTE[row.operationType]} className="text-cyan-700 underline">Origem: {OPERATION_LABEL[row.operationType]}</Link></small>}
                 <small className="text-slate-500">{obraLabel(row)} · {who(row)}{row.deliveryId ? ` · Entrega ${row.deliveryId.slice(-6)}` : ''}</small>
                 {row.note && <small className="text-slate-600">Obs.: {row.note}</small>}
               </article>
@@ -152,7 +153,7 @@ export default function Movements() {
                     <td className={`px-4 py-3 text-right ${qtyClass(row.quantity)}`}>{formatSignedQuantity(row.quantity) || '—'}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{formatBalance(row) || '—'}</td>
                     <td className="px-4 py-3">{who(row)}</td>
-                    <td className="px-4 py-3 text-slate-600">{row.note || (row.deliveryId ? `Entrega ${row.deliveryId.slice(-6)}` : '—')}</td>
+                    <td className="px-4 py-3 text-slate-600">{row.operationType ? <Link to={OPERATION_ROUTE[row.operationType]} className="text-cyan-700 underline">{OPERATION_LABEL[row.operationType]}</Link> : null}{row.operationType && row.note ? ' · ' : ''}{row.note || (!row.operationType && row.deliveryId ? `Entrega ${row.deliveryId.slice(-6)}` : (row.operationType ? '' : '—'))}</td>
                   </tr>
                 ))}
               </tbody>
