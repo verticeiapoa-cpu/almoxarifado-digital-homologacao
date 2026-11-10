@@ -596,6 +596,41 @@ service cloud.firestore {
 
     // Stage 2 — transfers atomically reconcile both worksite balances.
     // Only administrators can initiate cross-worksite transfers in this release.
+    // Stage 2 — returns are immutable; only inspected GOOD items may re-enter stock.
+    match /stockReturns/{returnId} {
+      allow read: if sameCompany(resource.data) && canAccessObra(resource.data.obraId);
+      allow create: if isAdmin()
+        && sameCompany(request.resource.data)
+        && request.resource.data.id == returnId
+        && request.resource.data.obraId is string
+        && request.resource.data.stockId == request.resource.data.obraId + '__' + request.resource.data.materialId
+        && request.resource.data.materialId is string
+        && request.resource.data.quantity is int
+        && request.resource.data.quantity > 0 && request.resource.data.quantity <= 999999
+        && request.resource.data.condition in ['GOOD', 'DAMAGED', 'UNSAFE']
+        && request.resource.data.destination in ['AVAILABLE', 'QUARANTINE', 'DISCARDED']
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() >= 5 && request.resource.data.reason.size() <= 300
+        && request.resource.data.balanceBefore is int && request.resource.data.balanceBefore >= 0
+        && request.resource.data.balanceAfter is int && request.resource.data.balanceAfter >= 0
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt is string
+        && (
+          (
+            request.resource.data.destination == 'AVAILABLE'
+            && request.resource.data.condition == 'GOOD'
+            && request.resource.data.balanceAfter == request.resource.data.balanceBefore + request.resource.data.quantity
+            && getAfter(/databases/$(database)/documents/inventoryStock/$(request.resource.data.stockId)).data.quantity == request.resource.data.balanceAfter
+          )
+          ||
+          (
+            request.resource.data.destination in ['QUARANTINE', 'DISCARDED']
+            && request.resource.data.balanceAfter == request.resource.data.balanceBefore
+          )
+        );
+      allow update, delete: if false;
+    }
+
     match /stockTransfers/{transferId} {
       allow read: if sameCompany(resource.data)
         && (canAccessObra(resource.data.sourceObraId) || canAccessObra(resource.data.destinationObraId));
