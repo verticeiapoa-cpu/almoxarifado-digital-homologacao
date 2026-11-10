@@ -398,6 +398,80 @@ describe('recebimento de estoque — etapa 2', () => {
   });
 });
 
+describe('devoluções de estoque — etapa 2', () => {
+  it('aceita item em boas condições e atualiza saldo com movimento RETURN', async () => {
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    const stockRef = doc(db, 'inventoryStock/obra-a__material-a');
+    await assertSucceeds(runTransaction(db, async transaction => {
+      const snapshot = await transaction.get(stockRef);
+      const stock = snapshot.data()!;
+      const after = stock.quantity + 2;
+      transaction.update(stockRef, { quantity: after, lowStockAlertSent: false, updatedAt: '2026-11-10T12:00:00.000Z' });
+      transaction.set(doc(db, 'stockReturns/return-good-a'), {
+        id: 'return-good-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+        materialId: 'material-a', materialDescription: 'CAPACETE', ca: '123',
+        quantity: 2, unit: 'UN', condition: 'GOOD', destination: 'AVAILABLE',
+        reason: 'Devolução em boas condições', stockId: 'obra-a__material-a',
+        balanceBefore: stock.quantity, balanceAfter: after,
+        createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+      transaction.set(doc(db, 'stockMovements/return-movement-a'), {
+        id: 'return-movement-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+        materialId: 'material-a', materialDescription: 'CAPACETE', type: 'RETURN',
+        quantity: 2, balanceBefore: stock.quantity, balanceAfter: after,
+        notes: 'Devolução em boas condições', createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+      });
+    }));
+  });
+
+  it('registra quarentena sem aumentar o estoque disponível', async () => {
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    await assertSucceeds(setDoc(doc(db, 'stockReturns/return-quarantine-a'), {
+      id: 'return-quarantine-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+      materialId: 'material-a', materialDescription: 'CAPACETE', ca: '123',
+      quantity: 1, unit: 'UN', condition: 'DAMAGED', destination: 'QUARANTINE',
+      reason: 'Aguardando avaliação técnica', stockId: 'obra-a__material-a',
+      balanceBefore: 10, balanceAfter: 10,
+      createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+    }));
+  });
+
+  it('bloqueia item danificado no estoque disponível', async () => {
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    await assertFails(setDoc(doc(db, 'stockReturns/return-damaged-a'), {
+      id: 'return-damaged-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+      materialId: 'material-a', materialDescription: 'CAPACETE', ca: '123',
+      quantity: 1, unit: 'UN', condition: 'DAMAGED', destination: 'AVAILABLE',
+      reason: 'Item apresenta avaria', stockId: 'obra-a__material-a',
+      balanceBefore: 10, balanceAfter: 11,
+      createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'admin',
+    }));
+  });
+
+  it('bloqueia devolução criada por almoxarife', async () => {
+    const db = env.authenticatedContext('storekeeper', { email: 'almoxarife@example.com' }).firestore();
+    await assertFails(setDoc(doc(db, 'stockReturns/return-forbidden-a'), {
+      id: 'return-forbidden-a', companyId: COMPANY, obraId: 'obra-a', obraName: 'OBRA A',
+      materialId: 'material-a', materialDescription: 'CAPACETE', ca: '123',
+      quantity: 1, unit: 'UN', condition: 'GOOD', destination: 'AVAILABLE',
+      reason: 'Devolução em boas condições', stockId: 'obra-a__material-a',
+      balanceBefore: 10, balanceAfter: 11,
+      createdAt: '2026-11-10T12:00:00.000Z', createdBy: 'storekeeper',
+    }));
+  });
+
+  it('impede alteração e exclusão do registro de devolução', async () => {
+    await env.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'stockReturns/immutable-return-a'), {
+        id: 'immutable-return-a', companyId: COMPANY, obraId: 'obra-a', createdBy: 'admin',
+      });
+    });
+    const db = env.authenticatedContext('admin', { email: ADMIN_EMAIL, email_verified: true }).firestore();
+    await assertFails(updateDoc(doc(db, 'stockReturns/immutable-return-a'), { quantity: 999 }));
+    await assertFails(deleteDoc(doc(db, 'stockReturns/immutable-return-a')));
+  });
+});
+
 describe('histórico de entregas', () => {
   it('permite entrega válida e impede alteração ou exclusão posterior', async () => {
     const db = env.authenticatedContext('storekeeper', { email: 'almoxarife@example.com' }).firestore();
