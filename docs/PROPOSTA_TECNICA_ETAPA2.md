@@ -122,3 +122,17 @@ Cada módulo recebe testes **unitários** (cálculo/validação), de **transaç�
 4. Integração ao histórico (`Movements.tsx`) e relatórios CSV (6 tipos).
 5. Protótipo HTML atualizado.
 6. Regressão completa, relatório final e patch.
+
+---
+
+## Atualização (implementação) — desvios em relação a esta proposta
+
+Decisões do usuário aplicadas na implementação; onde diferem do texto acima, valem estas:
+
+1. **Sem `quarantineStock`:** itens danificados/inservíveis/pendentes ficam apenas na coleção `returns` (condição, responsável, data, referência à entrega, inspeção posterior). O relatório "fora do estoque" é derivado dela.
+2. **Destino da transferência deve já ter saldo cadastrado** (não é criado pela operação).
+3. **Campo `lastMovementId` em `inventoryStock`:** necessário para que as regras vinculem o aumento de saldo à movimentação (`getAfter`).
+4. **`canAdjustStock` em `users`:** concedido só pelo administrador; o convidado não pode se auto-conceder na criação do perfil (regra).
+5. **Transferência:** exige acesso às duas obras; sem `EM_TRANSITO`; confirmação atômica; concluída não cancela (correção = nova transferência com `correctsTransferId` e motivo).
+6. **Não implementado:** transição DANIFICADO → descarte após inspeção; retomada de contagem abandonada além de cancelar.
+7. **Regras NÃO publicadas** e testes de regras NÃO executados (sem emulador/rede).

@@ -251,5 +251,6 @@ button, a, select { touch-action: manipulation; }
 .notice { padding:.85rem 1rem; border-radius:.85rem; font-size:.82rem; }
 .notice-warn { background:#fff8e8; color:#8a5700; border:1px solid #f3c56e; }
 .notice-error { background:#fef0f0; color:#8a1c1c; border:1px solid #f3b4b4; }
+.notice-ok { background:#effaf3; color:#17603a; border:1px solid #a9dcbb; }
 @media(min-width:640px){ .kpi-grid{grid-template-columns:repeat(4,minmax(0,1fr));} .filter-bar{grid-template-columns:repeat(2,minmax(0,1fr));} }
 @media(min-width:1024px){ .filter-bar{grid-template-columns:repeat(4,minmax(0,1fr));} }
