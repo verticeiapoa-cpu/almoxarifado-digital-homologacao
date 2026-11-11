@@ -21,7 +21,7 @@ const obraName = (id: string) => (id === 'obra-a' ? 'OBRA A' : 'OBRA B');
 const mvId = (op: string, obra: string, mat = 'material-a') => `${op}__${obra}__${mat}`;
 
 const movement = (op: string, opType: string, type: string, obra: string, qty: number, before: number, uid: string) => ({
-  id: mvId(op, obra), companyId: COMPANY, obraId: obra, materialId: 'material-a', materialDescription: 'CAPACETE', type,
+  id: mvId(op, obra), companyId: COMPANY, obraId: obra, obraName: obraName(obra), materialId: 'material-a', materialDescription: 'CAPACETE', type,
   quantity: qty, balanceBefore: before, balanceAfter: before + qty, operationType: opType, operationId: op, createdAt: NOW, createdBy: uid,
 });
 const receipt = (id: string, qty: number, before: number, uid: string, over: Record<string, unknown> = {}) => ({
