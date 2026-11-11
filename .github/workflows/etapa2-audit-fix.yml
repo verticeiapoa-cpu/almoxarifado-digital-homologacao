@@ -23,7 +23,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Atualizar apenas versões com correção compatível
-        run: npm audit fix --omit=dev
+        run: npm audit fix
       - name: Conferir
         run: |
           npm audit --omit=dev --audit-level=high
