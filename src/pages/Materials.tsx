@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { collection, query, getDocs, doc, updateDoc, where, writeBatch } from 'firebase/firestore';
-import { AlertTriangle, BellRing, CircleCheck, CircleOff, Edit2, Plus, Shield } from 'lucide-react';
+import { AlertTriangle, CircleCheck, CircleOff, Edit2, Plus, Search, Shield } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { cn } from '../components/Layout';
 import { useAuth } from '../lib/AuthContext';
 import { queueLowStockAlert } from '../lib/stockAlerts';
 import { loadMaterialStock, parseStockCount, saveMaterialStock } from '../lib/inventory';
 import type { InventoryStock, Material } from '../types';
+import { STOCK_LEVEL_HELP, STOCK_LEVEL_LABEL, STOCK_LEVEL_SEVERITY, stockLevel, summarizeStocks, type StockLevel } from '../lib/stockStatus';
+import { CoverageBar, StockLevelBadge } from '../components/StockUi';
 import { logError, logWarning } from '../lib/logger';
 
 const BASIC_EPI_CATALOG = [
@@ -102,6 +104,20 @@ export default function Materials() {
   const stockByMaterial = useMemo(() => new Map(stocks.map(stock => [stock.materialId, stock])), [stocks]);
   const visibleMaterials = isAdmin ? materials : materials.filter(material => stockByMaterial.has(material.id));
   const lowStockCount = stocks.filter(stock => stock.minimumStock > 0 && stock.quantity <= stock.minimumStock).length;
+
+  // Apresentação do estoque (somente leitura): busca, filtro por situação e ordenação por gravidade.
+  const [search, setSearch] = useState('');
+  const [levelFilter, setLevelFilter] = useState<StockLevel | ''>('');
+  const stockSummary = useMemo(() => summarizeStocks(stocks), [stocks]);
+  const displayRows = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase('pt-BR');
+    return visibleMaterials
+      .map(material => ({ material, stock: stockByMaterial.get(material.id) }))
+      .filter(({ material, stock }) => (!term || material.description.toLocaleLowerCase('pt-BR').includes(term) || (material.ca || '').toLocaleLowerCase('pt-BR').includes(term))
+        && (!levelFilter || (stock && stockLevel(stock) === levelFilter)))
+      .sort((a, b) => (b.stock ? STOCK_LEVEL_SEVERITY[stockLevel(b.stock)] : -1) - (a.stock ? STOCK_LEVEL_SEVERITY[stockLevel(a.stock)] : -1)
+        || a.material.description.localeCompare(b.material.description, 'pt-BR'));
+  }, [visibleMaterials, stockByMaterial, search, levelFilter]);
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = event.target;
@@ -295,10 +311,19 @@ export default function Materials() {
         <div className="flex justify-end gap-3 mt-5"><button type="button" disabled={isSubmitting} onClick={resetForm} className="secondary-action">Cancelar</button><button type="submit" disabled={isSubmitting || stockLoading || Boolean(stockLoadError)} className="primary-action">{isSubmitting ? 'Salvando...' : 'Salvar'}</button></div>
       </form>}
 
-      {activeObraId !== 'ALL' && !loadError && (loading ? <div className="flex justify-center py-12"><div className="spinner" /></div> : visibleMaterials.length === 0 ? <div className="empty-card"><Shield /><strong>Nenhum EPI neste estoque</strong><span>O administrador pode cadastrar o primeiro saldo desta obra.</span></div> : <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 border-b border-slate-200"><tr><th className="px-5 py-4">Equipamento</th><th className="px-5 py-4">C.A.</th><th className="px-5 py-4">Saldo</th><th className="px-5 py-4">Mínimo</th><th className="px-5 py-4">Situação</th><th className="px-5 py-4 text-right">Ações</th></tr></thead><tbody className="divide-y divide-slate-200">{visibleMaterials.map(material => {
-        const stock = stockByMaterial.get(material.id);
-        const isLow = Boolean(stock && stock.minimumStock > 0 && stock.quantity <= stock.minimumStock);
-        return <tr key={material.id} className={cn(isLow && 'bg-amber-50/70')}><td className="px-5 py-4 font-medium text-slate-900">{material.description}</td><td className="px-5 py-4 font-mono text-slate-600">{material.ca || '-'}</td><td className="px-5 py-4 font-bold">{stock ? `${stock.quantity} ${stock.unit}` : 'Não cadastrado'}</td><td className="px-5 py-4 text-slate-600">{stock ? `${stock.minimumStock} ${stock.unit}` : '-'}</td><td className="px-5 py-4"><span className={cn('stock-status', !stock ? 'stock-status-empty' : isLow ? 'stock-status-low' : 'stock-status-ok')}>{isLow && <BellRing />}{!stock ? 'SEM SALDO' : isLow ? 'ESTOQUE BAIXO' : 'NORMAL'}</span></td><td className="px-5 py-4 text-right">{isAdmin ? <><button onClick={() => handleEdit(material)} className="icon-action"><Edit2 /></button><button onClick={() => handleToggleActive(material)} className="icon-action">{material.isActive ? <CircleOff /> : <CircleCheck />}</button></> : <span className="text-xs text-slate-400">Somente leitura</span>}</td></tr>;
+      {activeObraId !== 'ALL' && !loadError && !loading && stocks.length > 0 && <div className="flex flex-col gap-3">
+        <div className="level-chips" role="group" aria-label="Filtrar por situação">
+          <button type="button" className="level-chip" aria-pressed={levelFilter === ''} onClick={() => setLevelFilter('')}>Todos ({stockSummary.items})</button>
+          {(['out', 'critical', 'low', 'ok'] as StockLevel[]).map(level => (
+            <button key={level} type="button" className="level-chip" aria-pressed={levelFilter === level} title={STOCK_LEVEL_HELP[level]} onClick={() => setLevelFilter(current => current === level ? '' : level)}>{STOCK_LEVEL_LABEL[level]} ({stockSummary.byLevel[level]})</button>
+          ))}
+        </div>
+        <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input type="search" aria-label="Buscar EPI por nome ou C.A." placeholder="Buscar por nome ou C.A." value={search} onChange={event => setSearch(event.target.value)} className="field-control pl-9" /></div>
+      </div>}
+
+      {activeObraId !== 'ALL' && !loadError && (loading ? <div className="flex justify-center py-12"><div className="spinner" /></div> : visibleMaterials.length === 0 ? <div className="empty-card"><Shield /><strong>Nenhum EPI neste estoque</strong><span>O administrador pode cadastrar o primeiro saldo desta obra.</span></div> : displayRows.length === 0 ? <div className="empty-card"><Search /><strong>Nenhum item com estes filtros</strong><span>Limpe a busca ou escolha outra situação.</span></div> : <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 border-b border-slate-200"><tr><th className="px-5 py-4">Equipamento</th><th className="px-5 py-4">C.A.</th><th className="px-5 py-4">Saldo</th><th className="px-5 py-4">Mínimo</th><th className="px-5 py-4">Cobertura</th><th className="px-5 py-4">Situação</th><th className="px-5 py-4 text-right">Ações</th></tr></thead><tbody className="divide-y divide-slate-200">{displayRows.map(({ material, stock }) => {
+        const level = stock ? stockLevel(stock) : null;
+        return <tr key={material.id} className={cn(level === 'out' || level === 'critical' ? 'bg-red-50/60' : level === 'low' && 'bg-amber-50/70')}><td className="px-5 py-4 font-medium text-slate-900">{material.description}</td><td className="px-5 py-4 font-mono text-slate-600">{material.ca || '-'}</td><td className="px-5 py-4 font-bold">{stock ? `${stock.quantity} ${stock.unit}` : 'Não cadastrado'}</td><td className="px-5 py-4 text-slate-600">{stock ? `${stock.minimumStock} ${stock.unit}` : '-'}</td><td className="px-5 py-4 w-32">{stock && level ? <CoverageBar stock={stock} level={level} /> : <span className="text-xs text-slate-400">-</span>}</td><td className="px-5 py-4">{stock && level ? <StockLevelBadge level={level} /> : <span className="stock-status stock-status-empty">SEM SALDO CADASTRADO</span>}</td><td className="px-5 py-4 text-right">{isAdmin ? <><button onClick={() => handleEdit(material)} className="icon-action"><Edit2 /></button><button onClick={() => handleToggleActive(material)} className="icon-action">{material.isActive ? <CircleOff /> : <CircleCheck />}</button></> : <span className="text-xs text-slate-400">Somente leitura</span>}</td></tr>;
       })}</tbody></table></div></div>)}
     </div>
   );

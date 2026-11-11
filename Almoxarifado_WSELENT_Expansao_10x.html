@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Protótipo — Almoxarifado WSELENT (Expansão)</title>
+<meta name="robots" content="noindex">
+<style>
+:root{--ink:#102f3a;--muted:#6e838b;--line:#dce8eb;--brand:#082b3a;--brand2:#0b4052;--cyan:#24bfd0;--cyan-d:#0797ad;--bg:#f2f7f8;--card:#fff;
+--ok:#08735a;--ok-bg:#dcf7ec;--low:#925b00;--low-bg:#ffedbd;--crit:#a23b00;--crit-bg:#ffe0cc;--out:#8a1c1c;--out-bg:#fde0e0}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:linear-gradient(180deg,#e8f2f5 0,var(--bg) 420px);min-height:100vh;padding-bottom:84px}
+button,select,input{font:inherit;color:inherit}
+.proto-banner{background:#ffd54a;color:#4a3500;font-size:.75rem;font-weight:800;text-align:center;padding:.45rem .75rem;position:sticky;top:0;z-index:50;letter-spacing:.02em}
+header{background:linear-gradient(145deg,var(--brand),var(--brand2) 70%,#0c5264);color:#fff;padding:.8rem 1rem 1rem;box-shadow:0 8px 24px rgba(7,43,58,.18)}
+.wrap{max-width:1100px;margin:0 auto}
+.top{display:flex;align-items:center;justify-content:space-between;gap:.75rem}
+.logo{display:flex;align-items:center;gap:.5rem;color:var(--cyan)}.logo svg{width:2.4rem;height:1.8rem}.logo strong{color:#fff;font-size:1.15rem;letter-spacing:.08em;font-weight:900}
+.role{display:flex;gap:.25rem;background:rgba(255,255,255,.12);padding:.2rem;border-radius:.7rem}
+.role button{border:0;background:transparent;color:#cde7ec;padding:.45rem .7rem;border-radius:.55rem;font-size:.75rem;font-weight:700;min-height:36px;cursor:pointer}
+.role button[aria-pressed=true]{background:#fff;color:var(--brand)}
+.switch{margin-top:.75rem;background:rgba(255,255,255,.96);border-radius:.9rem;padding:.55rem .9rem;display:flex;flex-direction:column;color:var(--ink);box-shadow:0 8px 22px rgba(0,25,35,.16)}
+.switch label{font-size:.6rem;text-transform:uppercase;font-weight:800;color:#64808a;letter-spacing:.06em}
+.switch select{border:0;background:transparent;font-weight:800;font-size:.95rem;min-height:30px;outline:0;width:100%}
+main{max-width:1100px;margin:0 auto;padding:1rem;display:flex;flex-direction:column;gap:1.1rem}
+h2{margin:0;font-size:1.5rem;letter-spacing:-.01em}h3{margin:0 0 .6rem;font-size:1rem;font-weight:800;color:#12313d}
+.sub{margin:.25rem 0 0;color:#5f7882;font-size:.88rem}
+.row{display:flex;align-items:center;justify-content:space-between;gap:.75rem}
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:.6rem}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:.85rem;padding:.85rem;box-shadow:0 4px 12px rgba(8,43,58,.05)}
+.kpi strong{display:block;font-size:1.55rem;line-height:1.1}.kpi span{font-size:.75rem;color:var(--muted)}
+.kpi.warn strong{color:var(--low)}.kpi.danger strong{color:#a31f1f}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:1rem;box-shadow:0 4px 12px rgba(8,43,58,.05);overflow:hidden}
+.item{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.75rem .9rem;border-top:1px solid #edf2f4}.item:first-child{border-top:0}
+.item .m{min-width:0;display:flex;flex-direction:column}.item .m strong{font-size:.88rem}.item .m small{font-size:.74rem;color:#69808a}
+.empty{padding:1.4rem;text-align:center;color:#758991;font-size:.85rem}
+.badge{display:inline-flex;align-items:center;padding:.26rem .5rem;border-radius:.45rem;font-size:.65rem;font-weight:800;white-space:nowrap}
+.b-ok{color:var(--ok);background:var(--ok-bg)}.b-low{color:var(--low);background:var(--low-bg)}.b-critical{color:var(--crit);background:var(--crit-bg)}.b-out{color:var(--out);background:var(--out-bg)}
+.t-ENTRY{color:#08735a;background:#dcf7ec}.t-EPI_DELIVERY{color:#0a6a80;background:#d9f1f6}.t-ADJUSTMENT{color:#925b00;background:#ffedbd}.t-OTHER{color:#5a6b71;background:#e9eef0}
+.pos{color:var(--ok);font-weight:800}.neg{color:#a31f1f;font-weight:800}
+.bar{height:.5rem;border-radius:99px;background:#e6eef0;overflow:hidden;min-width:70px}.bar i{display:block;height:100%;border-radius:99px}
+.f-ok{background:#17b58f}.f-low{background:#f0a81a}.f-critical{background:#e8671f}.f-out{background:#d33a3a}
+.filters{display:grid;grid-template-columns:1fr;gap:.7rem;background:var(--card);border:1px solid var(--line);border-radius:1rem;padding:1rem}
+label.l{display:block;font-size:.82rem;font-weight:650;color:#334b55;margin-bottom:.3rem}
+.ctl{width:100%;min-height:44px;padding:.6rem .75rem;border:1px solid #cbd8dc;border-radius:.7rem;background:#fff;font-size:.9rem}
+.ctl:focus,button:focus-visible{outline:3px solid rgba(23,173,191,.35);border-color:#17adbf}
+.chips{display:flex;flex-wrap:wrap;gap:.45rem}
+.chip{min-height:40px;padding:.4rem .8rem;border-radius:99px;border:1px solid #cbd8dc;background:#fff;font-size:.78rem;font-weight:700;color:#334b55;cursor:pointer}
+.chip[aria-pressed=true]{border-color:var(--cyan-d);background:#e3f7fa;color:#075c6b}
+.btn{min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:.4rem;padding:.65rem 1rem;border-radius:.75rem;border:0;font-weight:700;font-size:.88rem;cursor:pointer}
+.btn.p{color:#fff;background:linear-gradient(135deg,#20bfd0,#0797ad);box-shadow:0 6px 16px rgba(7,151,173,.18)}.btn.s{background:#f3f6f7;color:#526a73}.btn:disabled{opacity:.55;cursor:not-allowed}
+.opt{text-align:left;display:flex;flex-direction:column;gap:.15rem;padding:.9rem 1rem;border:1px solid #cbd8dc;border-radius:.85rem;background:#fff;cursor:pointer}
+.opt strong{font-size:.9rem}.opt small{color:#69808a;font-size:.76rem}.opt[aria-pressed=true]{border-color:var(--cyan-d);background:#e3f7fa;box-shadow:0 0 0 3px rgba(23,173,191,.13)}
+.opts{display:grid;gap:.5rem}
+table{width:100%;border-collapse:collapse;font-size:.85rem}th{background:#f6f9fa;color:#5f7882;text-align:left;padding:.7rem .85rem;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:.7rem .85rem;border-top:1px solid #edf2f4;vertical-align:middle}td.r,th.r{text-align:right}
+.scroll{overflow-x:auto}.only-m{display:block}.only-d{display:none}
+.mcard{display:flex;flex-direction:column;gap:.3rem;padding:.85rem .9rem;border-top:1px solid #edf2f4}.mcard:first-child{border-top:0}.mcard small{color:#69808a;font-size:.76rem}
+.note{padding:.8rem 1rem;border-radius:.85rem;font-size:.82rem;background:#fff8e8;color:#8a5700;border:1px solid #f3c56e}
+.hint{font-size:.78rem;color:#6e838b}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:40;background:rgba(255,255,255,.97);border-top:1px solid #dce7ea;box-shadow:0 -8px 24px rgba(8,43,58,.08);padding-bottom:env(safe-area-inset-bottom)}
+nav.tabs .in{max-width:1100px;margin:0 auto;display:flex}
+nav.tabs button{flex:1;min-height:60px;border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.2rem;font-size:.68rem;font-weight:700;color:#64808a;cursor:pointer}
+nav.tabs button svg{width:1.3rem;height:1.3rem}nav.tabs button[aria-current=page]{color:#0b9db3}
+.toast{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);background:#0d3240;color:#fff;padding:.7rem 1rem;border-radius:.8rem;font-size:.84rem;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.25);z-index:60;max-width:calc(100vw - 2rem);opacity:0;pointer-events:none;transition:opacity .2s}
+.toast.on{opacity:1}
+@media(min-width:640px){.kpis{grid-template-columns:repeat(4,1fr)}.filters{grid-template-columns:repeat(2,1fr)}.opts{grid-template-columns:repeat(3,1fr)}.only-m{display:none}.only-d{display:block}}
+@media(min-width:1024px){.filters{grid-template-columns:repeat(4,1fr)}}
+</style>
+</head>
+<body>
+<div class="proto-banner" role="note">PROTÓTIPO · dados 100% fictícios · sem Firebase, login ou internet · nada é gravado</div>
+<header>
+  <div class="wrap">
+    <div class="top">
+      <div class="logo"><svg viewBox="0 0 32 24" fill="currentColor" aria-hidden="true"><path d="M 2 4 L 11 20 L 16 13 L 21 20 L 30 4 L 25 4 L 19 14 L 16 10 L 13 14 L 7 4 Z"/></svg><strong>WSELENT</strong></div>
+      <div class="role" role="group" aria-label="Simular perfil">
+        <button type="button" data-role="admin" aria-pressed="true">Administrador</button>
+        <button type="button" data-role="keeper" aria-pressed="false">Almoxarife</button>
+      </div>
+    </div>
+    <div class="switch"><label for="obraSel">Obra atual</label><select id="obraSel"></select></div>
+  </div>
+</header>
+
+<main id="view" aria-live="polite"></main>
+
+<nav class="tabs" aria-label="Navegação"><div class="in" id="tabs"></div></nav>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(function(){
+'use strict';
+/* ---------- Dados fictícios (gerados localmente, determinísticos) ---------- */
+var OBRAS=[{id:'alfa',name:'OBRA FICTÍCIA ALFA'},{id:'beta',name:'OBRA FICTÍCIA BETA'},{id:'gama',name:'OBRA FICTÍCIA GAMA'}];
+var KEEPER_OBRAS=['alfa'];            // o almoxarife simulado só enxerga a obra ALFA
+var USERS={u1:'Ana Exemplo',u2:'Bruno Teste',u3:'Carla Modelo'};
+var ITEMS=[
+ ['capacete','CAPACETE DE SEGURANÇA','UN',[38,10]],['luva-nit','LUVA NITRÍLICA','PAR',[8,12]],['oculos','ÓCULOS DE PROTEÇÃO','UN',[24,8]],
+ ['plug','PROTETOR AURICULAR PLUG','UN',[6,10]],['botina','BOTINA DE SEGURANÇA','PAR',[0,6]],['cinto','CINTO COM TALABARTE','UN',[5,3]],
+ ['resp','RESPIRADOR PFF2','UN',[42,20]],['colete','COLETE REFLETIVO','UN',[12,5]],['facial','PROTETOR FACIAL','UN',[2,5]],
+ ['concha','ABAFADOR TIPO CONCHA','UN',[9,4]],['vaqueta','LUVA DE VAQUETA','PAR',[15,8]],['creme','CREME PROTETOR','UN',[7,0]]];
+var seed=7;function rnd(){seed=(seed*16807)%2147483647;return seed/2147483647}
+var STOCKS=[],MOVES=[],now=Date.now(),DAY=86400000;
+OBRAS.forEach(function(o,oi){ITEMS.forEach(function(it,ii){
+  var base=it[3][0],min=it[3][1];var q=Math.max(0,base-oi*4+(ii%3)*(oi?1:0));
+  if(it[0]==='botina'&&oi===0)q=0; if(it[0]==='facial')q=oi===1?4:2;
+  STOCKS.push({obraId:o.id,obraName:o.name,materialId:it[0],name:it[1],unit:it[2],qty:q,min:min,ca:String(10000+ii*137+oi)});
+  /* histórico: carga inicial + entregas + eventual ajuste, coerente com o saldo atual */
+  var bal=q,list=[],n=2+Math.floor(rnd()*3);
+  for(var k=0;k<n;k++){var d=1+Math.floor(rnd()*3);list.push({t:'EPI_DELIVERY',q:-d})}
+  if(rnd()>.7)list.push({t:'ADJUSTMENT',q:rnd()>.5?2:-1});
+  var before=bal;list.reverse().forEach(function(m){m.after=before;m.before=before-m.q;before=m.before});
+  var start=Math.max(0,before);
+  list.unshift({t:'ENTRY',q:start,before:0,after:start});
+  list.forEach(function(m,idx){
+    var age=(list.length-idx)*(2+rnd()*6);
+    MOVES.push({id:'m'+MOVES.length,obraId:o.id,obraName:o.name,materialId:it[0],name:it[1],type:m.t,qty:m.q,before:m.before,after:m.after,
+      at:new Date(now-age*DAY-rnd()*DAY).toISOString(),by:['u1','u2','u3'][Math.floor(rnd()*3)],note:m.t==='ADJUSTMENT'?'Conferência fictícia':'',delivery:m.t==='EPI_DELIVERY'?('ENT'+Math.floor(rnd()*90000+10000)):''});
+  });
+});});
+/* registro no formato antigo: sem data e sem responsável — o sistema não inventa esses campos */
+MOVES.push({id:'legacy1',obraId:'alfa',obraName:'OBRA FICTÍCIA ALFA',materialId:'capacete',name:'CAPACETE DE SEGURANÇA',type:'ENTRY',qty:5,before:null,after:null,at:null,by:null,note:'carga inicial (formato antigo)',delivery:''});
+
+var OPL={RECEIPT:'Recebimento',TRANSFER:'Transferência',RETURN:'Devolução',INVENTORY:'Inventário'};
+var TYPE_LABEL={ENTRY:'Entrada',EPI_DELIVERY:'Entrega de EPI',ADJUSTMENT:'Ajuste',TRANSFER:'Transferência',RETURN:'Devolução',OTHER:'Outro'};
+var LEVEL_LABEL={out:'SEM SALDO',critical:'CRÍTICO',low:'ESTOQUE BAIXO',ok:'NORMAL'};
+var LEVEL_HELP={out:'Saldo zerado.',critical:'Saldo igual ou inferior à metade do mínimo.',low:'Saldo igual ou inferior ao mínimo.',ok:'Saldo acima do mínimo (ou mínimo não configurado).'};
+var SEV={out:3,critical:2,low:1,ok:0};
+function level(s){if(s.qty<=0)return'out';if(s.min>0&&s.qty*2<=s.min)return'critical';if(s.min>0&&s.qty<=s.min)return'low';return'ok'}
+function below(s){return s.min>0&&s.qty<=s.min}
+
+/* ---------- Estado ---------- */
+var RECEIPTS=[],TRANSFERS=[],RETURNS=[],COUNTS=[],EMPL=['João Exemplo','Maria Teste','Pedro Modelo'],opSeq=1;
+var st={opTab:'rec',canAdj:false,opMsg:null,role:'admin',obra:'ALL',tab:'home',lv:'',q:'',mType:'',mItem:'',mFrom:day(-30),mTo:day(0),mShown:30,rep:'pos',rFrom:day(-30),rTo:day(0),rOut:null};
+function day(n){var d=new Date(Date.now()+n*DAY);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function allowed(){return st.role==='admin'?OBRAS.map(function(o){return o.id}):KEEPER_OBRAS}
+function scopeIds(){return st.obra==='ALL'?allowed():[st.obra]}
+function inScope(r){return scopeIds().indexOf(r.obraId)>=0}      // isolamento por obra
+function stocks(){return STOCKS.filter(inScope)}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function fmt(iso){if(!iso)return'';return new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short',timeZone:'America/Sao_Paulo'}).format(new Date(iso))}
+function sg(n){return n==null?'':(n>0?'+'+n:String(n))}
+function bal(m){return m.before==null&&m.after==null?'':(m.before==null?'?':m.before)+' → '+(m.after==null?'?':m.after)}
+function who(m){return m.by?(st.role==='admin'?USERS[m.by]:(m.by==='u1'?'Você':'Usuário …'+m.by.slice(-6))):''}
+function badge(l){return '<span class="badge b-'+l+'" title="'+esc(LEVEL_HELP[l])+'">'+LEVEL_LABEL[l]+'</span>'}
+function tbadge(t){return '<span class="badge t-'+t+'">'+TYPE_LABEL[t]+'</span>'}
+function bar(s){if(s.min<=0)return'<span class="hint">Sem mínimo</span>';var r=Math.max(0,Math.min(1,s.qty/s.min));return '<div class="bar" role="img" aria-label="Saldo em '+Math.round(r*100)+'% do mínimo"><i class="f-'+level(s)+'" style="width:'+Math.max(r*100,r>0?4:0)+'%"></i></div>'}
+var toastT;function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(function(){t.classList.remove('on')},2800)}
+
+/* ---------- CSV (mesma regra do app: ';' + BOM + neutraliza fórmulas) ---------- */
+function cell(v){if(v==null)return'';if(typeof v==='number')return isFinite(v)?String(v):'';var t=String(v);if(/^[=+\-@\t\r]/.test(t))t="'"+t;return /[;"\r\n]/.test(t)?'"'+t.replace(/"/g,'""')+'"':t}
+function csv(cols,rows){return [cols.map(function(c){return cell(c[0])}).join(';')].concat(rows.map(function(r){return cols.map(function(c){return cell(c[1](r))}).join(';')})).join('\r\n')+'\r\n'}
+function download(name,text){var b=new Blob(['﻿',text],{type:'text/csv;charset=utf-8'});var u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(u)},1000)}
+var STOCK_COLS=[['Obra',function(r){return r.obraName}],['Item',function(r){return r.name}],['C.A.',function(r){return r.ca}],['Saldo',function(r){return r.qty}],['Unidade',function(r){return r.unit}],['Mínimo',function(r){return r.min}],['Situação',function(r){return LEVEL_LABEL[level(r)]}]];
+var MOVE_COLS=[['Data/hora',function(m){return fmt(m.at)}],['Data (ISO)',function(m){return m.at}],['Obra',function(m){return m.obraName}],['Item',function(m){return m.name}],['Tipo',function(m){return TYPE_LABEL[m.type]}],['Quantidade',function(m){return m.qty}],['Saldo anterior',function(m){return m.before}],['Saldo posterior',function(m){return m.after}],['Responsável',who],['Entrega',function(m){return m.delivery}],['Observação',function(m){return m.note}],['ID da movimentação',function(m){return m.id}]];
+
+/* ---------- Telas ---------- */
+function sortStocks(a,b){return a.obraName.localeCompare(b.obraName,'pt-BR')||SEV[level(b)]-SEV[level(a)]||a.name.localeCompare(b.name,'pt-BR')}
+function recent(){return MOVES.filter(inScope).sort(function(a,b){return(b.at?Date.parse(b.at):-1)-(a.at?Date.parse(a.at):-1)})}
+function home(){
+  var S=stocks(),units=S.reduce(function(n,s){return n+s.qty},0),bm=S.filter(below).length,crit=S.filter(function(s){var l=level(s);return l==='out'||l==='critical'}).length;
+  var att=S.filter(function(s){return level(s)!=='ok'}).sort(function(a,b){return SEV[level(b)]-SEV[level(a)]}).slice(0,8);
+  var h='<section><div><h2>Painel operacional</h2><p class="sub">'+(st.obra==='ALL'?'Todas as obras do seu acesso':esc(nameOf(st.obra)))+'</p></div></section>';
+  h+='<section aria-label="Indicadores"><div class="kpis"><div class="kpi"><strong>'+S.length+'</strong><span>Itens cadastrados</span></div><div class="kpi"><strong>'+units+'</strong><span>Unidades em estoque</span></div><div class="kpi'+(bm?' warn':'')+'"><strong>'+bm+'</strong><span>Abaixo do mínimo</span></div><div class="kpi'+(crit?' danger':'')+'"><strong>'+crit+'</strong><span>Críticos ou sem saldo</span></div></div></section>';
+  h+='<section><h3>Precisam de atenção</h3><div class="panel">'+(att.length?att.map(function(s){return '<div class="item"><div class="m"><strong>'+esc(s.name)+'</strong><small>'+(st.obra==='ALL'?esc(s.obraName)+' · ':'')+s.qty+' '+s.unit+' · mínimo '+s.min+'</small></div>'+badge(level(s))+'</div>'}).join(''):'<p class="empty">Nenhum item abaixo do mínimo ou sem saldo.</p>')+'</div></section>';
+  if(st.role==='admin'&&st.obra==='ALL'){h+='<section><h3>Por obra</h3><div class="panel">'+allowed().map(function(id){var X=STOCKS.filter(function(s){return s.obraId===id});var b=X.filter(below).length;return '<div class="item"><div class="m"><strong>'+esc(nameOf(id))+'</strong><small>'+X.length+' itens · '+X.reduce(function(n,s){return n+s.qty},0)+' unidades</small></div><small class="'+(b?'neg':'hint')+'">'+b+' abaixo do mínimo</small></div>'}).join('')+'</div></section>'}
+  var R=recent().slice(0,6);
+  h+='<section><div class="row"><h3>Movimentações recentes</h3><a href="#" data-go="moves" style="font-size:.78rem;font-weight:700;color:#0a9db3">Ver todas</a></div><div class="panel">'+R.map(function(m){return '<div class="item"><div class="m"><strong>'+esc(m.name)+'</strong><small>'+(fmt(m.at)||'Sem data')+'</small></div><div style="display:flex;gap:.5rem;align-items:center">'+tbadge(m.type)+'<span class="'+(m.qty>0?'pos':'neg')+'">'+sg(m.qty)+'</span></div></div>'}).join('')+'</div></section>';
+  return h}
+function nameOf(id){return OBRAS.filter(function(o){return o.id===id})[0].name}
+function stockView(){
+  var S=stocks(),c={out:0,critical:0,low:0,ok:0};S.forEach(function(s){c[level(s)]++});
+  var term=st.q.trim().toLowerCase();
+  var rows=S.filter(function(s){return(!term||s.name.toLowerCase().indexOf(term)>=0||s.ca.indexOf(term)>=0)&&(!st.lv||level(s)===st.lv)}).sort(sortStocks);
+  var h='<section><h2>Estoque por obra</h2><p class="sub">Saldo, mínimo e situação de cada item.</p></section>';
+  h+='<div class="chips" role="group" aria-label="Filtrar por situação"><button class="chip" aria-pressed="'+(st.lv==='')+'" data-lv="">Todos ('+S.length+')</button>'+['out','critical','low','ok'].map(function(l){return '<button class="chip" aria-pressed="'+(st.lv===l)+'" data-lv="'+l+'" title="'+esc(LEVEL_HELP[l])+'">'+LEVEL_LABEL[l]+' ('+c[l]+')</button>'}).join('')+'</div>';
+  h+='<input class="ctl" id="q" type="search" placeholder="Buscar por nome ou C.A." aria-label="Buscar EPI por nome ou C.A." value="'+esc(st.q)+'">';
+  h+='<p class="hint">Crítico: zerado ou até metade do mínimo · Baixo: até o mínimo · Sem mínimo configurado não gera alerta.</p>';
+  if(!rows.length)return h+'<div class="panel"><p class="empty">Nenhum item com estes filtros.</p></div>';
+  h+='<div class="panel only-m">'+rows.map(function(s){return '<div class="mcard"><div class="row"><strong>'+esc(s.name)+'</strong>'+badge(level(s))+'</div><div class="row"><span><b>'+s.qty+' '+s.unit+'</b> <small>· mínimo '+s.min+'</small></span><small>C.A. '+esc(s.ca)+'</small></div>'+bar(s)+(st.obra==='ALL'?'<small>'+esc(s.obraName)+'</small>':'')+'</div>'}).join('')+'</div>';
+  h+='<div class="panel only-d scroll"><table><thead><tr>'+(st.obra==='ALL'?'<th>Obra</th>':'')+'<th>Equipamento</th><th>C.A.</th><th>Saldo</th><th>Mínimo</th><th>Cobertura</th><th>Situação</th></tr></thead><tbody>'+rows.map(function(s){return '<tr>'+(st.obra==='ALL'?'<td>'+esc(s.obraName)+'</td>':'')+'<td><b>'+esc(s.name)+'</b></td><td>'+esc(s.ca)+'</td><td><b>'+s.qty+' '+s.unit+'</b></td><td>'+s.min+' '+s.unit+'</td><td style="width:140px">'+bar(s)+'</td><td>'+badge(level(s))+'</td></tr>'}).join('')+'</tbody></table></div>';
+  return h}
+function movesFiltered(){
+  var from=st.mFrom?new Date(st.mFrom+'T00:00:00').getTime():null,to=st.mTo?new Date(st.mTo+'T23:59:59.999').getTime():null;
+  return recent().filter(function(m){if(st.mType&&m.type!==st.mType)return false;if(st.mItem&&m.materialId!==st.mItem)return false;
+    if(from!==null||to!==null){if(!m.at)return false;var t=Date.parse(m.at);if(from!==null&&t<from)return false;if(to!==null&&t>to)return false}return true})}
+function movesView(){
+  var all=recent(),items={};all.forEach(function(m){items[m.materialId]=m.name});
+  var rows=movesFiltered(),shown=rows.slice(0,st.mShown);
+  var h='<section><div class="row"><div><h2>Movimentações</h2><p class="sub">Entradas, entregas e ajustes das obras do seu acesso.</p></div></div></section>';
+  h+='<section class="filters" aria-label="Filtros"><div><label class="l" for="mt">Tipo</label><select class="ctl" id="mt"><option value="">Todos os tipos</option>'+['ENTRY','EPI_DELIVERY','ADJUSTMENT','TRANSFER','RETURN'].map(function(t){return '<option value="'+t+'"'+(st.mType===t?' selected':'')+'>'+TYPE_LABEL[t]+'</option>'}).join('')+'</select></div>'+
+   '<div><label class="l" for="mi">Item</label><select class="ctl" id="mi"><option value="">Todos os itens</option>'+Object.keys(items).sort(function(a,b){return items[a].localeCompare(items[b],'pt-BR')}).map(function(k){return '<option value="'+k+'"'+(st.mItem===k?' selected':'')+'>'+esc(items[k])+'</option>'}).join('')+'</select></div>'+
+   '<div><label class="l" for="mf">De</label><input class="ctl" id="mf" type="date" value="'+st.mFrom+'"></div><div><label class="l" for="mo">Até</label><input class="ctl" id="mo" type="date" value="'+st.mTo+'"></div></section>';
+  h+='<p class="hint" role="status">'+rows.length+' '+(rows.length===1?'movimentação':'movimentações')+' · registros sem data (formato antigo) só aparecem sem filtro de período</p>';
+  if(!rows.length)return h+'<div class="panel"><p class="empty">Nenhuma movimentação encontrada. Ajuste os filtros ou o período.</p></div>';
+  h+='<div class="panel only-m">'+shown.map(function(m){return '<article class="mcard"><div class="row">'+tbadge(m.type)+'<small>'+(fmt(m.at)||'Sem data')+'</small></div><strong>'+esc(m.name)+'</strong><div class="row"><span class="'+(m.qty>0?'pos':'neg')+'">'+(sg(m.qty)||'—')+'</span><span>Saldo: '+(bal(m)||'—')+'</span></div><small>'+esc(m.obraName)+' · '+(who(m)||'—')+(m.delivery?' · Entrega '+m.delivery.slice(-6):'')+'</small>'+(m.note?'<small>Obs.: '+esc(m.note)+'</small>':'')+'</article>'}).join('')+'</div>';
+  h+='<div class="panel only-d scroll"><table><thead><tr><th>Data/hora</th><th>Obra</th><th>Item</th><th>Tipo</th><th class="r">Qtd.</th><th>Saldo</th><th>Responsável</th><th>Observação</th></tr></thead><tbody>'+shown.map(function(m){return '<tr><td style="white-space:nowrap">'+(fmt(m.at)||'—')+'</td><td>'+esc(m.obraName)+'</td><td><b>'+esc(m.name)+'</b></td><td>'+tbadge(m.type)+'</td><td class="r '+(m.qty>0?'pos':'neg')+'">'+(sg(m.qty)||'—')+'</td><td style="white-space:nowrap">'+(bal(m)||'—')+'</td><td>'+esc(who(m)||'—')+'</td><td>'+esc(m.note||(m.delivery?'Entrega '+m.delivery.slice(-6):'—'))+'</td></tr>'}).join('')+'</tbody></table></div>';
+  if(rows.length>st.mShown)h+='<button class="btn s" id="more" style="align-self:center">Mostrar mais ('+(rows.length-st.mShown)+' restantes)</button>';
+  return h}
+var REPS={pos:['Posição de estoque','Saldo, mínimo, unidade e situação de cada item por obra.'],rep:['Itens para reposição','Somente itens sem saldo, críticos ou abaixo do mínimo.'],mov:['Histórico de movimentações','Entradas, entregas e ajustes no período escolhido.']};
+function repData(){
+  if(st.rep==='mov'){var from=st.rFrom?new Date(st.rFrom+'T00:00:00').getTime():null,to=st.rTo?new Date(st.rTo+'T23:59:59.999').getTime():null;
+    return{cols:MOVE_COLS,rows:recent().filter(function(m){if(from===null&&to===null)return true;if(!m.at)return false;var t=Date.parse(m.at);return(from===null||t>=from)&&(to===null||t<=to)})}}
+  var S=stocks().sort(sortStocks);return{cols:STOCK_COLS,rows:st.rep==='rep'?S.filter(function(s){return level(s)!=='ok'}):S}}
+function reportsView(){
+  var h='<section><h2>Relatórios</h2><p class="sub">Gere a prévia e baixe em CSV (abre no Excel). Os dados respeitam as obras do seu acesso.</p></section>';
+  h+='<section class="opts" aria-label="Tipo de relatório">'+Object.keys(REPS).map(function(k){return '<button class="opt" data-rep="'+k+'" aria-pressed="'+(st.rep===k)+'"><strong>'+REPS[k][0]+'</strong><small>'+REPS[k][1]+'</small></button>'}).join('')+'</section>';
+  h+='<section class="filters" aria-label="Parâmetros">'+(st.rep==='mov'?'<div><label class="l" for="rf">De</label><input class="ctl" id="rf" type="date" value="'+st.rFrom+'"></div><div><label class="l" for="ro">Até</label><input class="ctl" id="ro" type="date" value="'+st.rTo+'"></div>':'')+'<div style="display:flex;align-items:flex-end"><button class="btn p" id="gen" style="width:100%">Gerar '+REPS[st.rep][0].toLowerCase()+'</button></div></section>';
+  if(st.rOut&&st.rOut.rep===st.rep){var D=st.rOut.data,n=D.rows.length;
+    h+='<div class="row" style="flex-wrap:wrap"><p class="hint" role="status"><b>'+n+'</b> '+(n===1?'linha':'linhas')+' · prévia das '+Math.min(15,n)+' primeiras</p><button class="btn p" id="dl"'+(n?'':' disabled')+'>Baixar CSV</button></div>';
+    h+=n?'<div class="panel scroll"><table><thead><tr>'+D.cols.slice(0,st.rep==='mov'?6:7).map(function(c){return '<th>'+esc(c[0])+'</th>'}).join('')+'</tr></thead><tbody>'+D.rows.slice(0,15).map(function(r){return '<tr>'+D.cols.slice(0,st.rep==='mov'?6:7).map(function(c){var v=c[1](r);return '<td>'+esc(v==null||v===''?'—':v)+'</td>'}).join('')+'</tr>'}).join('')+'</tbody></table></div>':'<div class="panel"><p class="empty">Nenhum dado para este relatório. Altere a obra, o período ou o tipo.</p></div>'}
+  return h}
+
+
+/* ---------- Etapa 2: operações (recebimento, transferência, devolução, inventário) ---------- */
+var CLASS_OK='',CLASS_ERR='';
+function oid(p){return p+(opSeq++)}
+function stockOf(obra,mat){return STOCKS.filter(function(s){return s.obraId===obra&&s.materialId===mat})[0]}
+function mv(s,type,delta,op,note){var m={id:'m'+MOVES.length,obraId:s.obraId,obraName:s.obraName,materialId:s.materialId,name:s.name,type:type,qty:delta,before:s.qty,after:s.qty+delta,at:new Date().toISOString(),by:'u1',note:note||'',delivery:'',op:op};s.qty+=delta;MOVES.push(m);return m}
+function intQ(v,allowZero){var t=String(v).trim();if(!/^\d+$/.test(t))throw new Error('Informe um número inteiro.');var n=Number(t);if(n>999999||(!allowZero&&n<1))throw new Error('Quantidade fora do limite (1 a 999999).');return n}
+function val(id){var e=document.getElementById(id);return e?e.value:''}
+function selObra(id){return '<select class="ctl" id="'+id+'">'+allowed().map(function(o){return '<option value="'+o+'"'+((st.obra===o)?' selected':'')+'>'+esc(nameOf(o))+'</option>'}).join('')+'</select>'}
+function selItem(id){return '<select class="ctl" id="'+id+'">'+ITEMS.map(function(i){return '<option value="'+i[0]+'">'+esc(i[1])+'</option>'}).join('')+'</select>'}
+function field(l,id,inner){return '<div><label class="l" for="'+id+'">'+l+'</label>'+inner+'</div>'}
+function inp(id,type,ph){return '<input class="ctl" id="'+id+'" type="'+(type||'text')+'"'+(ph?' placeholder="'+ph+'"':'')+(type==='number'?' inputmode="numeric" min="1"':'')+'>'}
+function opList(rows){return rows.length?'<div class="panel">'+rows.join('')+'</div>':'<div class="panel"><p class="empty">Nada registrado ainda neste protótipo.</p></div>'}
+function row(a,b){return '<div class="item"><div class="m"><strong>'+a+'</strong><small>'+b+'</small></div></div>'}
+function opsView(){
+  var tabs={rec:'Recebimento',tr:'Transferência',ret:'Devolução',inv:'Inventário'};
+  var h='<section><h2>Operações de estoque</h2><p class="sub">Cada operação grava documento + movimentação + saldo juntos; nada altera o saldo sem movimentação.</p></section>';
+  h+='<div class="chips" role="group" aria-label="Operação">'+Object.keys(tabs).map(function(k){return '<button class="chip" data-op="'+k+'" aria-pressed="'+(st.opTab===k)+'">'+tabs[k]+'</button>'}).join('')+'</div>';
+  h+='<label class="hint" style="display:flex;gap:.4rem;align-items:center"><input type="checkbox" id="canAdj"'+(st.canAdj?' checked':'')+'> Simular permissão “ajustar estoque” (campo canAdjustStock; administrador sempre pode)</label>';
+  if(st.opMsg)h+='<div class="note" role="'+(st.opMsg.err?'alert':'status')+'" style="'+(st.opMsg.err?'border-color:#e9a1a1;background:#fdecec;color:#8a1f1f':'')+'">'+esc(st.opMsg.text)+'</div>';
+  var A=allowed();
+  if(st.opTab==='rec'){
+    h+='<section class="filters">'+field('Obra','f-obra',selObra('f-obra'))+field('Item','f-item',selItem('f-item'))+field('Quantidade recebida','f-qty',inp('f-qty','number'))+field('Fornecedor (opcional)','f-sup',inp('f-sup'))+field('Nota fiscal (opcional)','f-nf',inp('f-nf'))+field('Lote (opcional)','f-lot',inp('f-lot'))+field('Validade (opcional)','f-exp',inp('f-exp','date'))+'</section><button class="btn p" data-act="rec">Registrar recebimento</button>';
+    h+='<h3>Recebimentos</h3>'+opList(RECEIPTS.filter(inScope).slice().reverse().map(function(r){return row(esc(r.name)+' · +'+r.qty,esc(r.obraName)+' · saldo '+r.before+' → '+r.after+(r.nf?' · NF '+esc(r.nf):'')+(r.lot?' · lote '+esc(r.lot):'')+(r.exp?' · val. '+esc(r.exp):'')+' · informativo')}));
+  } else if(st.opTab==='tr'){
+    h+='<section class="filters">'+field('Origem','f-from',selObra('f-from'))+field('Destino','f-to','<select class="ctl" id="f-to">'+OBRAS.map(function(o){return '<option value="'+o.id+'">'+esc(o.name)+'</option>'}).join('')+'</select>')+field('Item','f-item',selItem('f-item'))+field('Quantidade','f-qty',inp('f-qty','number'))+'</section><button class="btn p" data-act="tr-req">Solicitar transferência</button>';
+    h+='<p class="hint">Exige acesso às duas obras. O estoque só muda na confirmação (atômica). Concluída não pode ser cancelada.</p><h3>Transferências</h3>'+opList(TRANSFERS.filter(function(t){return A.indexOf(t.from)>=0||A.indexOf(t.to)>=0}).slice().reverse().map(function(t){var both=A.indexOf(t.from)>=0&&A.indexOf(t.to)>=0;return row(esc(t.name)+' · '+t.qty+' · '+t.status,esc(nameOf(t.from))+' → '+esc(nameOf(t.to))+(t.status==='PENDENTE'&&both?' <button class="btn s" data-act="tr-ok" data-id="'+t.id+'">Confirmar</button> <button class="btn s" data-act="tr-no" data-id="'+t.id+'">Cancelar</button>':''))}));
+  } else if(st.opTab==='ret'){
+    h+='<section class="filters">'+field('Obra','f-obra',selObra('f-obra'))+field('Colaborador','f-emp','<select class="ctl" id="f-emp">'+EMPL.map(function(e){return '<option>'+esc(e)+'</option>'}).join('')+'</select>')+field('Item','f-item',selItem('f-item'))+field('Quantidade','f-qty',inp('f-qty','number'))+field('Condição','f-cond','<select class="ctl" id="f-cond"><option value="BOM_ESTADO">Bom estado (volta ao estoque)</option><option value="DANIFICADO">Danificado (fora do estoque)</option><option value="INSERVIVEL">Inservível (descarte)</option><option value="PENDENTE_INSPECAO">Pendente de inspeção</option></select>')+field('Observação','f-obs',inp('f-obs'))+'</section><button class="btn p" data-act="ret">Registrar devolução</button>';
+    h+='<h3>Devoluções</h3>'+opList(RETURNS.filter(inScope).slice().reverse().map(function(r){return row(esc(r.name)+' · '+r.qty+' · '+esc(r.cond)+(r.status==='INSPECIONADA'?' → '+esc(r.res):''),esc(r.emp)+' · '+(r.restocked?'voltou ao estoque':'fora do estoque disponível')+(r.obs?' · '+esc(r.obs):'')+(r.cond==='PENDENTE_INSPECAO'&&r.status==='REGISTRADA'?' <button class="btn s" data-act="ret-ins" data-id="'+r.id+'" data-res="BOM_ESTADO">Bom estado</button> <button class="btn s" data-act="ret-ins" data-id="'+r.id+'" data-res="DANIFICADO">Danificado</button>':''))}));
+  } else {
+    h+='<section class="filters">'+field('Obra','f-obra',selObra('f-obra'))+field('Item','f-item',selItem('f-item'))+field('Quantidade contada','f-qty',inp('f-qty','number'))+field('Justificativa (se houver diferença)','f-just',inp('f-just'))+'</section><button class="btn p" data-act="inv">Registrar contagem</button>';
+    h+='<p class="hint">A contagem não altera o saldo. O ajuste exige permissão e saldo igual ao da contagem.</p><h3>Contagens</h3>'+opList(COUNTS.filter(inScope).slice().reverse().map(function(c){return row(esc(c.name)+' · sistema '+c.sys+' · contado '+c.cnt+' · dif. '+sg(c.diff||0)+' · '+c.status,esc(c.obraName)+(c.just?' · '+esc(c.just):'')+(c.status==='PENDENTE_AJUSTE'&&(st.canAdj||st.role==='admin')?' <button class="btn s" data-act="inv-adj" data-id="'+c.id+'">Aplicar ajuste</button>':''))}));
+  }
+  return h}
+function opAct(a,id,res){
+  var saved={};document.querySelectorAll('[id^=f-]').forEach(function(e){saved[e.id]=e.value});var failed=false;
+  try{
+    if(a==='rec'){var o=val('f-obra'),s=stockOf(o,val('f-item')),q=intQ(val('f-qty'));if(!s)throw new Error('Item sem saldo cadastrado nesta obra.');if(s.qty+q>999999)throw new Error('Saldo final acima do limite.');
+      var rid=oid('R'),b=s.qty;mv(s,'ENTRY',q,'RECEIPT','Recebimento'+(val('f-nf')?' NF '+val('f-nf'):''));RECEIPTS.push({id:rid,obraId:o,obraName:s.obraName,name:s.name,qty:q,before:b,after:s.qty,nf:val('f-nf'),lot:val('f-lot'),exp:val('f-exp'),sup:val('f-sup')});st.opMsg={text:'Recebimento registrado e saldo atualizado ('+b+' → '+s.qty+').'}}
+    else if(a==='tr-req'){var f=val('f-from'),t=val('f-to'),q2=intQ(val('f-qty'));if(f===t)throw new Error('Origem e destino devem ser diferentes.');if(allowed().indexOf(f)<0||allowed().indexOf(t)<0)throw new Error('Você precisa ter acesso às duas obras para transferir entre elas.');var sx=stockOf(f,val('f-item'));
+      TRANSFERS.push({id:oid('T'),from:f,to:t,mat:val('f-item'),name:sx.name,qty:q2,status:'PENDENTE'});st.opMsg={text:'Transferência solicitada. O estoque só muda quando ela for confirmada.'}}
+    else if(a==='tr-ok'||a==='tr-no'){var T=TRANSFERS.filter(function(x){return x.id===id})[0];if(T.status!=='PENDENTE')throw new Error(T.status==='CONCLUIDA'?'Esta transferência já foi concluída.':'Transferência cancelada.');
+      if(a==='tr-no'){T.status='CANCELADA';st.opMsg={text:'Transferência cancelada.'}}else{var so=stockOf(T.from,T.mat),sd=stockOf(T.to,T.mat);if(!so||!sd)throw new Error('Origem e destino precisam ter saldo cadastrado.');if(so.qty<T.qty)throw new Error('Saldo insuficiente na origem: disponível '+so.qty+', solicitado '+T.qty+'.');
+        mv(so,'TRANSFER',-T.qty,'TRANSFER','Transferência '+so.obraName+' → '+sd.obraName);mv(sd,'TRANSFER',T.qty,'TRANSFER','Transferência '+so.obraName+' → '+sd.obraName);T.status='CONCLUIDA';st.opMsg={text:'Transferência concluída: origem baixada e destino creditado.'}}}
+    else if(a==='ret'){var o3=val('f-obra'),s3=stockOf(o3,val('f-item')),q3=intQ(val('f-qty')),cd=val('f-cond'),ob=val('f-obs').trim();if(q3>9999)throw new Error('Quantidade acima de 9999.');if(cd==='INSERVIVEL'&&ob.length<5)throw new Error('Para item inservível, descreva o motivo (mínimo de 5 caracteres).');if(cd==='BOM_ESTADO'&&!s3)throw new Error('Item sem saldo cadastrado nesta obra.');
+      var rr={id:oid('D'),obraId:o3,obraName:s3.obraName,name:s3.name,mat:s3.materialId,qty:q3,cond:cd,emp:val('f-emp'),obs:ob,status:'REGISTRADA',restocked:cd==='BOM_ESTADO'};if(rr.restocked)mv(s3,'RETURN',q3,'RETURN','Devolução de '+rr.emp);RETURNS.push(rr);st.opMsg={text:rr.restocked?'Devolução registrada e item devolvido ao estoque.':'Devolução registrada. O item NÃO volta ao estoque disponível.'}}
+    else if(a==='ret-ins'){var R=RETURNS.filter(function(x){return x.id===id})[0];if(R.status!=='REGISTRADA')throw new Error('Esta devolução já foi inspecionada.');R.status='INSPECIONADA';R.res=res;if(res==='BOM_ESTADO'){mv(stockOf(R.obraId,R.mat),'RETURN',R.qty,'RETURN','Devolução inspecionada');R.restocked=true}st.opMsg={text:'Inspeção registrada.'}}
+    else if(a==='inv'){var o4=val('f-obra'),s4=stockOf(o4,val('f-item')),c4=intQ(val('f-qty'),true),j=val('f-just').trim(),d4=c4-s4.qty;if(d4!==0&&j.length<5)throw new Error('Divergência encontrada: informe a justificativa (mínimo de 5 caracteres).');
+      COUNTS.push({id:oid('C'),obraId:o4,obraName:s4.obraName,mat:s4.materialId,name:s4.name,sys:s4.qty,cnt:c4,diff:d4,just:j,status:d4===0?'SEM_DIVERGENCIA':'PENDENTE_AJUSTE'});st.opMsg={text:'Contagem registrada. O saldo só muda quando o ajuste for aplicado.'}}
+    else if(a==='inv-adj'){var C=COUNTS.filter(function(x){return x.id===id})[0];if(!st.canAdj&&st.role!=='admin')throw new Error('Você não tem permissão para ajustar estoque. Peça ao administrador.');if(C.status!=='PENDENTE_AJUSTE')throw new Error('Este item já foi ajustado.');var s5=stockOf(C.obraId,C.mat);if(s5.qty!==C.sys)throw new Error('O saldo mudou desde a contagem (contagem: '+C.sys+', atual: '+s5.qty+'). Faça uma nova contagem deste item.');
+      mv(s5,'ADJUSTMENT',C.diff,'INVENTORY','Ajuste de inventário: '+C.just);C.status='AJUSTADO';st.opMsg={text:'Ajuste aplicado e movimentação registrada.'}}
+  }catch(e){failed=true;st.opMsg={err:true,text:e.message}}
+  st.form=failed?saved:{};
+  render();
+}
+
+/* ---------- Navegação e eventos ---------- */
+var ICON={home:'<path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',stock:'<path d="M12 2l9 4v6c0 5-4 8-9 10-5-2-9-5-9-10V6z"/>',moves:'<path d="M7 7h13l-3-3M17 17H4l3 3"/>',reports:'<path d="M6 2h9l5 5v15H6zM14 2v6h6M9 13h6M9 17h6"/>',ops:'<path d="M12 3v18M3 12h18"/>'};
+var TABS=[['home','Painel'],['stock','Estoque'],['moves','Movimentos'],['ops','Operações'],['reports','Relatórios']];
+function render(){
+  document.getElementById('tabs').innerHTML=TABS.map(function(t){return '<button data-go="'+t[0]+'"'+(st.tab===t[0]?' aria-current="page"':'')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+ICON[t[0]]+'</svg>'+t[1]+'</button>'}).join('');
+  var sel=document.getElementById('obraSel');var opts=(st.role==='admin'?'<option value="ALL">🏢 Todas as obras</option>':'')+allowed().map(function(id){return '<option value="'+id+'">'+esc(nameOf(id))+'</option>'}).join('');
+  if(sel.innerHTML!==opts)sel.innerHTML=opts;sel.value=st.obra;
+  var v=document.getElementById('view');
+  v.innerHTML=(st.role==='keeper'?'<div class="note">Perfil <b>Almoxarife</b> simulado: só a obra ALFA é visível — como nas regras reais, dados de outras obras nem são consultados.</div>':'')+({home:home,stock:stockView,moves:movesView,ops:opsView,reports:reportsView}[st.tab])();
+  if(st.form)Object.keys(st.form).forEach(function(k){var e=document.getElementById(k);if(e)e.value=st.form[k]});
+}
+document.addEventListener('click',function(e){
+  var t=e.target.closest('[data-go],[data-role],[data-lv],[data-rep],[data-op],[data-act],#more,#gen,#dl');if(!t)return;
+  if(t.dataset.act){opAct(t.dataset.act,t.dataset.id,t.dataset.res);return}
+  if(t.dataset.op){st.opTab=t.dataset.op;st.opMsg=null;st.form={};render();return}
+  if(t.dataset.go){e.preventDefault();st.tab=t.dataset.go;st.mShown=30;render();window.scrollTo(0,0)}
+  else if(t.dataset.role){st.role=t.dataset.role;document.querySelectorAll('[data-role]').forEach(function(b){b.setAttribute('aria-pressed',String(b===t))});st.obra=st.role==='admin'?'ALL':'alfa';st.rOut=null;st.opMsg=null;render();toast(st.role==='admin'?'Perfil: Administrador (todas as obras)':'Perfil: Almoxarife (somente obra ALFA)')}
+  else if(t.dataset.lv!==undefined&&t.hasAttribute('data-lv')){st.lv=(st.lv===t.dataset.lv)?'':t.dataset.lv;render()}
+  else if(t.dataset.rep){st.rep=t.dataset.rep;st.rOut=null;render()}
+  else if(t.id==='more'){st.mShown+=30;render()}
+  else if(t.id==='gen'){st.rOut={rep:st.rep,data:repData(),obra:st.obra};render();toast('Relatório gerado: '+st.rOut.data.rows.length+' linhas (dados fictícios)')}
+  else if(t.id==='dl'&&st.rOut){var d=st.rOut.data,nm=(REPS[st.rep][0]+' '+(st.obra==='ALL'?'todas as obras':nameOf(st.obra))).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+    download('prototipo-'+nm+'-'+day(0).replace(/-/g,'')+'.csv',csv(d.cols,d.rows));toast('CSV de exemplo baixado (dados fictícios)')}
+});
+document.addEventListener('input',function(e){var t=e.target;
+  if(t.id==='q'){st.q=t.value;var p=t.selectionStart;render();var n=document.getElementById('q');n.focus();n.setSelectionRange(p,p)}});
+document.addEventListener('change',function(e){var t=e.target;if(t.id==='canAdj'){st.canAdj=t.checked;render();return}var m0=null;
+  var t=e.target,m={mt:'mType',mi:'mItem',mf:'mFrom',mo:'mTo',rf:'rFrom',ro:'rTo'};
+  if(t.id==='obraSel'){if(allowed().concat('ALL').indexOf(t.value)<0||(t.value==='ALL'&&st.role!=='admin'))return;st.obra=t.value;st.rOut=null;st.mShown=30;render()}
+  else if(m[t.id]){st[m[t.id]]=t.value;st.mShown=30;if(t.id.charAt(0)==='r')st.rOut=null;render()}});
+render();
+})();
+</script>
+</body>
+</html>

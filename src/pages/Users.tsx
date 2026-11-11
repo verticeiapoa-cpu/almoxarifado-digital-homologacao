@@ -89,6 +89,8 @@ export default function UsersPage() {
         name: updatedProfile.name,
         role: updatedProfile.role,
         assignedObraIds: updatedProfile.role === 'admin' ? ['ALL'] : updatedProfile.assignedObraIds,
+        // Etapa 2: permissão de ajuste de estoque (inventário). Administrador sempre pode ajustar.
+        canAdjustStock: updatedProfile.role === 'admin' ? false : updatedProfile.canAdjustStock === true,
         updatedAt: updatedProfile.updatedAt,
       });
 
@@ -338,6 +340,14 @@ export default function UsersPage() {
                   </button>
                 </div>
               </div>
+
+              {editingUser.role === 'storekeeper' && (
+                <label className="flex items-start gap-2 text-sm text-slate-700 border border-slate-200 rounded-lg p-3">
+                  <input type="checkbox" className="mt-1" checked={editingUser.canAdjustStock === true}
+                    onChange={event => setEditingUser({ ...editingUser, canAdjustStock: event.target.checked })} />
+                  <span><strong>Pode ajustar estoque</strong><br /><span className="text-xs text-slate-500">Permite aplicar ajustes de inventário (divergências de contagem). Cada ajuste exige justificativa e fica registrado.</span></span>
+                </label>
+              )}
 
               {editingUser.role === 'storekeeper' && (
                 <div>
