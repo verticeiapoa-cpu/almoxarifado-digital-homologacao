@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowLeftRight, BellRing, Building2, ChevronRight, ClipboardCheck, FileSpreadsheet, PackagePlus, Repeat, Shield, Undo2, UserCog, UserRoundCheck } from 'lucide-react';
+import { ArrowLeftRight, BellRing, Building2, ChevronRight, ClipboardCheck, FileSpreadsheet, PackagePlus, Repeat, Shield, Undo2, UserCog, UserRoundCheck, Users } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 
 export default function More() {
@@ -7,6 +7,8 @@ export default function More() {
   const links = [
     { to: '/materials', label: 'Estoque de EPIs', description: 'Catálogo e certificados de aprovação', icon: Shield },
     { to: '/movements', label: 'Movimentações', description: 'Entradas, entregas e ajustes por obra', icon: ArrowLeftRight },
+    { to: '/employees', label: 'Funcionários', description: 'Cadastro das pessoas que recebem EPI', icon: Users },
+    { to: '/operations', label: 'Operações de estoque', description: 'Recebimento, transferência, devolução e contagem', icon: ClipboardCheck },
     { to: '/receipts', label: 'Recebimento', description: 'Entrada de material com NF, lote e validade', icon: PackagePlus },
     { to: '/transfers', label: 'Transferências', description: 'Movimentação de material entre obras', icon: Repeat },
     { to: '/returns', label: 'Devoluções', icon: Undo2, description: 'Devolução de EPI com condição do item' },

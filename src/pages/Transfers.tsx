@@ -7,7 +7,7 @@ import { cancelTransfer, confirmTransfer, newOperationId, requestTransfer } from
 import { parseQuantity } from '../lib/operations';
 import { formatDateTime } from '../lib/movements';
 import type { Transfer } from '../types';
-import { Feedback, NoAccess, PageHeader, useGuardedAction, useOperationContext, useStocks } from '../components/OperationUi';
+import { ConfirmPanel, Feedback, ItemPicker, NoAccess, PageHeader, Step, useGuardedAction, useOperationContext, useStocks } from '../components/OperationUi';
 
 const STATUS_LABEL = { PENDENTE: 'Pendente', CONCLUIDA: 'Concluída', CANCELADA: 'Cancelada' } as const;
 
@@ -19,6 +19,8 @@ export default function Transfers() {
   const [materialId, setMaterialId] = useState('');
   const [quantity, setQuantity] = useState('');
   const [notes, setNotes] = useState('');
+  const [reviewing, setReviewing] = useState(false);
+  const [formError, setFormError] = useState('');
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [listError, setListError] = useState('');
   const [cancelReason, setCancelReason] = useState<Record<string, string>>({});
@@ -50,7 +52,8 @@ export default function Transfers() {
     const ok = await guard.run(() => requestTransfer(db, {
       operationId: operationId.current, fromObraId: from.id, fromObraName: from.name, toObraId: to.id, toObraName: to.name,
       materialId: stock.materialId, materialDescription: stock.materialDescription, unit: stock.unit, quantity: parseQuantity(quantity), notes: notes.trim() || undefined,
-    }, obraIds, Boolean(ctx.isAdmin), ctx.actor!), 'Transferência solicitada. O estoque só muda quando ela for confirmada.');
+    }, obraIds, Boolean(ctx.isAdmin), ctx.actor!), 'Pedido registrado. O estoque só muda quando alguém confirmar o recebimento abaixo, em “Pedidos de transferência”.');
+    setReviewing(false);
     if (ok) { operationId.current = newOperationId(db, 'transfers'); setQuantity(''); setNotes(''); setReload(n => n + 1); }
   };
   const confirm = (t: Transfer) => guard.run(() => confirmTransfer(db, t.id, t.fromObraId, t.toObraId, t.materialId, obraIds, Boolean(ctx.isAdmin), ctx.actor!), 'Transferência concluída: origem baixada e destino creditado.').then(ok => ok && setReload(n => n + 1));
@@ -58,21 +61,30 @@ export default function Transfers() {
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="Transferência entre obras" text="Solicite e confirme a movimentação de material entre duas obras do seu acesso. A confirmação baixa a origem e credita o destino de uma só vez." />
-      <section className="filter-bar" aria-label="Nova transferência">
-        <div><label className="field-label" htmlFor="tr-from">Origem</label>
-          <select id="tr-from" className="field-control" value={ctx.obraId} onChange={e => { ctx.setObraId(e.target.value); setMaterialId(''); }}>{ctx.accessibleObras.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select></div>
-        <div><label className="field-label" htmlFor="tr-to">Destino</label>
-          <select id="tr-to" className="field-control" value={toObraId} onChange={e => setToObraId(e.target.value)}><option value="">Selecione</option>{destinations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select></div>
-        <div><label className="field-label" htmlFor="tr-mat">Item</label>
-          <select id="tr-mat" className="field-control" value={materialId} disabled={loading} onChange={e => setMaterialId(e.target.value)}><option value="">Selecione</option>{stocks.map(s => <option key={s.materialId} value={s.materialId}>{s.materialDescription} (saldo {s.quantity})</option>)}</select></div>
-        <div><label className="field-label" htmlFor="tr-qty">Quantidade</label><input id="tr-qty" inputMode="numeric" className="field-control" value={quantity} onChange={e => setQuantity(e.target.value)} /></div>
-        <div className="sm:col-span-2"><label className="field-label" htmlFor="tr-obs">Observação (opcional)</label><input id="tr-obs" className="field-control" maxLength={300} value={notes} onChange={e => setNotes(e.target.value)} /></div>
-      </section>
+      <PageHeader title="Mandar material para outra obra" text="Faça o pedido e depois confirme. Ao confirmar, o estoque sai de uma obra e entra na outra ao mesmo tempo." />
+      <Step n={1} title="De onde sai e para onde vai?">
+        <div><label className="field-label" htmlFor="tr-from">Sai da obra</label>
+          <select id="tr-from" className="field-control" value={ctx.obraId} onChange={e => { ctx.setObraId(e.target.value); setMaterialId(''); setReviewing(false); }}>{ctx.accessibleObras.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select></div>
+        <div><label className="field-label" htmlFor="tr-to">Vai para a obra</label>
+          <select id="tr-to" className="field-control" value={toObraId} onChange={e => { setToObraId(e.target.value); setReviewing(false); }}><option value="">Toque para escolher</option>{destinations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select></div>
+        <p className="op-hint">Só aparecem as obras que você pode acessar. Precisa ter acesso às duas.</p>
+      </Step>
+      <Step n={2} title="O que e quanto?">
+        <ItemPicker id="tr-mat" label="Item" stocks={stocks} value={materialId} onChange={id => { setMaterialId(id); setReviewing(false); }} />
+        <div><label className="field-label" htmlFor="tr-qty">Quantidade{stock ? ` (${stock.unit})` : ''}</label><input id="tr-qty" inputMode="numeric" autoComplete="off" className="field-control" value={quantity} onChange={e => { setQuantity(e.target.value); setReviewing(false); }} placeholder="Ex.: 10" /></div>
+        {stock && <p className="op-hint">Na obra de saída tem hoje: <strong>{stock.quantity} {stock.unit}</strong></p>}
+        <div><label className="field-label" htmlFor="tr-obs">Observação (opcional)</label><input id="tr-obs" className="field-control" maxLength={300} value={notes} onChange={e => setNotes(e.target.value)} /></div>
+      </Step>
+      {formError && <div role="alert" className="notice notice-error">{formError}</div>}
       <Feedback error={guard.error} success={guard.success} />
-      <button type="button" className="primary-action" disabled={guard.busy || !stock || !toObraId || !quantity} onClick={submit}><ArrowLeftRight />Solicitar transferência</button>
+      {reviewing && stock ? (
+        <ConfirmPanel title="Confira o pedido" busy={guard.busy} confirmLabel="Fazer o pedido" onBack={() => setReviewing(false)} onConfirm={submit}
+          lines={[`Item: ${stock.materialDescription}`, `Quantidade: ${quantity} ${stock.unit}`, `De: ${ctx.obra?.name ?? ''}`, `Para: ${ctx.accessibleObras.find(o => o.id === toObraId)?.name ?? ''}`, 'O estoque só muda quando o pedido for confirmado.']} />
+      ) : (
+        <button type="button" className="primary-action" style={{ minHeight: 52, fontSize: '1rem' }} disabled={!stock || !toObraId || !quantity.trim()} onClick={() => { setFormError(''); try { parseQuantity(quantity); setReviewing(true); } catch (e) { setFormError((e as Error).message); } }}><ArrowLeftRight />Revisar pedido</button>
+      )}
 
-      <h3 className="text-lg font-semibold text-slate-900">Transferências</h3>
+      <h3 className="text-lg font-semibold text-slate-900">Pedidos de transferência</h3>
       {listError && <div role="alert" className="notice notice-error">{listError}</div>}
       {transfers.length === 0 ? <div className="empty-card"><ArrowLeftRight /><strong>Nenhuma transferência</strong></div> : (
         <div className="panel-card">{transfers.map(t => (
@@ -83,7 +95,7 @@ export default function Transfers() {
             {t.status === 'CANCELADA' && <small className="text-slate-600">Cancelada: {t.cancelReason}</small>}
             {t.status === 'PENDENTE' && obraIds.includes(t.fromObraId) && obraIds.includes(t.toObraId) && (
               <div className="flex flex-wrap gap-2 items-center">
-                <button type="button" className="primary-action" disabled={guard.busy} onClick={() => confirm(t)}><Check />Confirmar</button>
+                <button type="button" className="primary-action" disabled={guard.busy} onClick={() => confirm(t)}><Check />Confirmar que foi feito</button>
                 <input aria-label="Motivo do cancelamento" placeholder="Motivo para cancelar" className="field-control" style={{ maxWidth: 240 }} value={cancelReason[t.id] ?? ''} onChange={e => setCancelReason(r => ({ ...r, [t.id]: e.target.value }))} />
                 <button type="button" className="secondary-action" disabled={guard.busy} onClick={() => cancel(t)}><X />Cancelar</button>
               </div>)}

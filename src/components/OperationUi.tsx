@@ -76,3 +76,46 @@ export function PageHeader({ title, text }: { title: string; text: string }) {
 export function NoAccess({ children }: { children?: ReactNode }) {
   return <div className="empty-card"><strong>Sem obra vinculada</strong><span>{children ?? 'Peça ao administrador para vincular uma obra ao seu perfil.'}</span></div>;
 }
+
+// Passo numerado: divide o formulário em blocos curtos, como uma ficha de papel.
+export function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
+  return <section className="op-step" aria-label={title}><h3><b>{n}</b>{title}</h3>{children}</section>;
+}
+
+// Confirmação antes de gravar: mostra em linguagem simples o que vai acontecer e permite voltar.
+export function ConfirmPanel({ title, lines, busy, confirmLabel, onConfirm, onBack }: {
+  title: string; lines: string[]; busy: boolean; confirmLabel: string; onConfirm: () => void; onBack: () => void;
+}) {
+  return (
+    <div className="op-summary" role="group" aria-label="Confirmação">
+      <strong>{title}</strong>
+      <ul>{lines.map(line => <li key={line}>{line}</li>)}</ul>
+      <p className="op-hint">Depois de confirmar, o registro fica no histórico e não pode ser apagado.</p>
+      <div className="op-actions">
+        <button type="button" className="primary-action" disabled={busy} onClick={onConfirm}>{busy ? 'Registrando…' : confirmLabel}</button>
+        <button type="button" className="secondary-action" disabled={busy} onClick={onBack}>Voltar e corrigir</button>
+      </div>
+    </div>
+  );
+}
+
+// Escolha de item com busca por nome: listas longas ficam fáceis no celular.
+export function ItemPicker({ id, label, stocks, value, onChange }: {
+  id: string; label: string; stocks: InventoryStock[]; value: string; onChange: (materialId: string) => void;
+}) {
+  const [term, setTerm] = useState('');
+  const list = useMemo(() => {
+    const t = term.trim().toLowerCase();
+    return t ? stocks.filter(s => s.materialDescription.toLowerCase().includes(t) || (s.ca ?? '').toLowerCase().includes(t)) : stocks;
+  }, [stocks, term]);
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="field-label" htmlFor={id}>{label}</label>
+      <input className="field-control" type="search" placeholder="Digite parte do nome ou do C.A. para achar" aria-label="Buscar item" value={term} onChange={e => setTerm(e.target.value)} />
+      <select id={id} className="field-control" value={value} onChange={e => onChange(e.target.value)} size={list.length > 1 && list.length <= 6 ? list.length + 1 : undefined}>
+        <option value="">{list.length === 0 ? 'Nenhum item encontrado' : 'Toque para escolher o item'}</option>
+        {list.map(s => <option key={s.materialId} value={s.materialId}>{s.materialDescription} — tem {s.quantity} {s.unit}</option>)}
+      </select>
+    </div>
+  );
+}

@@ -20,6 +20,7 @@ const UsersPage = lazy(() => import('./pages/Users'));
 const AlertSettings = lazy(() => import('./pages/AlertSettings'));
 const Movements = lazy(() => import('./pages/Movements'));
 const Reports = lazy(() => import('./pages/Reports'));
+const Operations = lazy(() => import('./pages/Operations'));
 const Receipts = lazy(() => import('./pages/Receipts'));
 const Transfers = lazy(() => import('./pages/Transfers'));
 const Returns = lazy(() => import('./pages/Returns'));
@@ -87,6 +88,7 @@ export default function App() {
               <Route path="materials" element={<Materials />} />
               <Route path="movements" element={<Movements />} />
               <Route path="reports" element={<Reports />} />
+              <Route path="operations" element={<Operations />} />
               <Route path="receipts" element={<Receipts />} />
               <Route path="transfers" element={<Transfers />} />
               <Route path="returns" element={<Returns />} />

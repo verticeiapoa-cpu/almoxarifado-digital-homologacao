@@ -254,3 +254,22 @@ button, a, select { touch-action: manipulation; }
 .notice-ok { background:#effaf3; color:#17603a; border:1px solid #a9dcbb; }
 @media(min-width:640px){ .kpi-grid{grid-template-columns:repeat(4,minmax(0,1fr));} .filter-bar{grid-template-columns:repeat(2,minmax(0,1fr));} }
 @media(min-width:1024px){ .filter-bar{grid-template-columns:repeat(4,minmax(0,1fr));} }
+
+/* ===== Etapa 2: telas de operação pensadas para quem vem do papel e caneta ===== */
+.op-hub { display:grid; gap:.75rem; }
+@media (min-width:640px){ .op-hub { grid-template-columns:repeat(2,1fr); } }
+.op-hub-card { display:flex; align-items:center; gap:.9rem; padding:1rem 1.1rem; min-height:84px; border:1px solid #d7e5e8; border-radius:1rem; background:white; text-align:left; }
+.op-hub-card:active,.op-hub-card:hover { border-color:#17adbf; box-shadow:0 0 0 3px rgba(23,173,191,.13); }
+.op-hub-card>svg { width:2.2rem; height:2.2rem; flex:0 0 auto; color:#0797ad; }
+.op-hub-card strong { display:block; font-size:1rem; color:#173640; }
+.op-hub-card span { font-size:.82rem; color:#5e7882; line-height:1.3; }
+.op-step { display:flex; flex-direction:column; gap:.75rem; padding:1rem; border:1px solid #d7e5e8; border-radius:1rem; background:white; }
+.op-step>h3 { display:flex; align-items:center; gap:.5rem; font-size:.95rem; font-weight:700; color:#173640; }
+.op-step>h3 b { display:inline-grid; place-items:center; width:1.6rem; height:1.6rem; border-radius:999px; background:#0797ad; color:white; font-size:.8rem; }
+.op-hint { font-size:.8rem; color:#5e7882; line-height:1.35; }
+.op-summary { padding:1rem; border:2px solid #17adbf; border-radius:1rem; background:#f1fbfc; display:flex; flex-direction:column; gap:.5rem; }
+.op-summary strong { color:#173640; }
+.op-summary ul { margin:0; padding-left:1.1rem; font-size:.9rem; color:#2c4a54; }
+.op-actions { display:flex; flex-wrap:wrap; gap:.6rem; }
+.op-actions>button { flex:1 1 150px; min-height:52px; font-size:1rem; }
+.field-control { font-size:1rem; }

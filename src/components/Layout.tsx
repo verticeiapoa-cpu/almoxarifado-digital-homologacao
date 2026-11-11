@@ -1,6 +1,6 @@
 import React from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { Package, History, LogOut, Users, Shield, Building2, UserCog, Home, Menu, HardHat, BellRing, UserRoundCheck, AlertTriangle, RefreshCw, ArrowLeftRight, FileSpreadsheet, PackagePlus, Repeat, Undo2, ClipboardCheck } from 'lucide-react';
+import { Package, History, LogOut, Users, Shield, Building2, UserCog, Home, Menu, HardHat, BellRing, UserRoundCheck, AlertTriangle, RefreshCw, ArrowLeftRight, FileSpreadsheet, ClipboardCheck } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useAuth } from '../lib/AuthContext';
@@ -25,10 +25,7 @@ export default function Layout() {
     { path: '/employees', label: 'Funcionários', icon: Users },
     { path: '/materials', label: 'Estoque', icon: Shield },
     { path: '/movements', label: 'Movimentos', icon: ArrowLeftRight },
-    { path: '/receipts', label: 'Recebimento', icon: PackagePlus },
-    { path: '/transfers', label: 'Transferências', icon: Repeat },
-    { path: '/returns', label: 'Devoluções', icon: Undo2 },
-    { path: '/inventory-count', label: 'Inventário', icon: ClipboardCheck },
+    { path: '/operations', label: 'Operações', icon: ClipboardCheck },
     { path: '/reports', label: 'Relatórios', icon: FileSpreadsheet },
     ...(isAdmin ? [
       { path: '/obras', label: 'Obras', icon: Building2 },
@@ -40,8 +37,8 @@ export default function Layout() {
   const mobileNavItems = [
     { path: '/', label: 'Início', icon: Home },
     { path: '/delivery', label: 'Entregar', icon: Package },
+    { path: '/operations', label: 'Operações', icon: ClipboardCheck },
     { path: '/history', label: 'Histórico', icon: History },
-    { path: '/employees', label: 'Pessoas', icon: Users },
     { path: '/more', label: 'Mais', icon: Menu },
   ];
 

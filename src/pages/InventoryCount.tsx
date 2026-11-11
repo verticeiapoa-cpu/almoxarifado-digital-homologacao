@@ -63,13 +63,13 @@ export default function InventoryCountPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="Inventário físico" text="Conte o estoque, registre divergências com justificativa e, se tiver permissão, aplique o ajuste. A contagem sozinha não altera o saldo." />
-      {!ctx.canAdjust && <div className="notice notice-warn">Você pode registrar contagens, mas o ajuste do estoque exige a permissão “ajustar estoque”, concedida pelo administrador.</div>}
+      <PageHeader title="Contar o estoque" text="Conte o que tem na prateleira e digite. Se for diferente do sistema, explique o motivo. Contar sozinho não muda o estoque — só o ajuste muda." />
+      {!ctx.canAdjust && <div className="notice notice-warn">Você pode contar e registrar. Para corrigir o estoque é preciso que o administrador libere a permissão “Pode ajustar estoque” no seu cadastro.</div>}
       <section className="filter-bar" aria-label="Contagem">
         <ObraField ctx={ctx} />
         <div><label className="field-label" htmlFor="ic-sel">Contagem</label>
           <select id="ic-sel" className="field-control" value={countId} onChange={e => setCountId(e.target.value)}>{counts.length === 0 && <option value="">Nenhuma</option>}{counts.map(c => <option key={c.id} value={c.id}>{c.countedAt} · {COUNT_LABEL[c.status]} · {c.countedByName}</option>)}</select></div>
-        <div className="flex items-end"><button type="button" className="primary-action w-full" disabled={guard.busy || counts.some(c => c.status === 'EM_CONTAGEM')} onClick={start}><ClipboardCheck />Abrir nova contagem</button></div>
+        <div className="flex items-end"><button type="button" className="primary-action w-full" disabled={guard.busy || counts.some(c => c.status === 'EM_CONTAGEM')} onClick={start}><ClipboardCheck />Começar uma contagem</button></div>
       </section>
       <Feedback error={guard.error || loadError} success={guard.success} />
 
@@ -80,11 +80,11 @@ export default function InventoryCountPage() {
             <div className="flex justify-between gap-2"><strong className="text-sm">{s.materialDescription}</strong><span className="text-xs text-slate-500">{item ? ITEM_LABEL[item.status] : 'Não contado'}</span></div>
             {item ? <small className="text-slate-600">Sistema {item.systemQty} · contado {item.countedQty} · diferença {item.difference > 0 ? '+' : ''}{item.difference}{item.justification ? ` · ${item.justification}` : ''}{item.status === 'AJUSTADO' ? ` · saldo final ${item.balanceAfter}` : ''}</small>
               : open && <div className="flex flex-wrap gap-2 items-center">
-                <small className="text-slate-500">Saldo no sistema: {s.quantity} {s.unit}</small>
-                <input aria-label={`Quantidade contada de ${s.materialDescription}`} inputMode="numeric" className="field-control" style={{ maxWidth: 110 }} placeholder="Contado" value={qty[s.materialId] ?? ''} onChange={e => setQty(q => ({ ...q, [s.materialId]: e.target.value }))} />
+                <small className="text-slate-500">O sistema diz: {s.quantity} {s.unit}</small>
+                <input aria-label={`Quantidade contada de ${s.materialDescription}`} inputMode="numeric" className="field-control" style={{ maxWidth: 110 }} placeholder="Quanto tem?" value={qty[s.materialId] ?? ''} onChange={e => setQty(q => ({ ...q, [s.materialId]: e.target.value }))} />
                 <input aria-label={`Justificativa de ${s.materialDescription}`} className="field-control" style={{ maxWidth: 260 }} placeholder="Justificativa (se houver diferença)" maxLength={300} value={just[s.materialId] ?? ''} onChange={e => setJust(j => ({ ...j, [s.materialId]: e.target.value }))} />
                 <button type="button" className="secondary-action" disabled={guard.busy || !(qty[s.materialId] ?? '').trim()} onClick={() => record(s.materialId)}>Registrar</button></div>}
-            {item?.status === 'PENDENTE_AJUSTE' && open && ctx.canAdjust && <button type="button" className="primary-action self-start" disabled={guard.busy} onClick={() => adjust(item)}>Aplicar ajuste</button>}
+            {item?.status === 'PENDENTE_AJUSTE' && open && ctx.canAdjust && <button type="button" className="primary-action self-start" disabled={guard.busy} onClick={() => adjust(item)}>Corrigir o estoque para o valor contado</button>}
           </article>);
       })}</section>}
 
