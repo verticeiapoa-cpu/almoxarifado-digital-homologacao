@@ -1,6 +1,9 @@
 name: Etapa 2 — Corrigir vulnerabilidades de dependências (manual)
 
 on:
+  push:
+    branches: [feature/expansao-operacional-etapa2-integrada]
+    paths: ['.github/workflows/etapa2-audit-fix.yml']
   workflow_dispatch:
 
 permissions:
